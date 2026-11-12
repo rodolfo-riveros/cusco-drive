@@ -39,9 +39,11 @@ export function AdminScreen({ navigation }) {
   const [ledgerAll, setLedgerAll] = useState(false);
   const mg = cfg.margin[cat];
   const tf = cfg.tariffs[cat];
+
   const size0 = { size: Object.keys(cfg.cargoSizes[cat] || { x: 0 })[0] };
   const sample = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('mercado'), cargo: size0 });
   const sampleLong = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('yanahuara'), cargo: size0 });
+  const sampleMid = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('chicon'), cargo: size0 });
 
   const setMg = (patch) => setConfig((c) => ({ ...c, margin: { ...c.margin, [cat]: { ...c.margin[cat], ...patch } } }));
   const setTf = (patch) => setConfig((c) => ({ ...c, tariffs: { ...c.tariffs, [cat]: { ...c.tariffs[cat], ...patch } } }));
@@ -110,8 +112,9 @@ export function AdminScreen({ navigation }) {
         ))}
       </Row>
       <Card style={{ marginTop: 6 }}>
-        <ParamRow label="Tarifa base"><Stepper value={tf.base} step={0.5} prefix="S/ " onChange={(v) => setTf({ base: v })} /></ParamRow>
-        <ParamRow label="Por km"><Stepper value={tf.perKm} step={0.1} prefix="S/ " onChange={(v) => setTf({ perKm: v })} /></ParamRow>
+        <ParamRow label="Tarifa en el centro" sub="Precio final dentro del centro"><Stepper value={tf.centerFare} step={0.5} prefix="S/ " onChange={(v) => setTf({ centerFare: v })} /></ParamRow>
+        <ParamRow label="Sube por tramo" sub="Fuera del centro, por cada tramo"><Stepper value={tf.stepAmount} step={0.5} prefix="S/ " onChange={(v) => setTf({ stepAmount: v })} /></ParamRow>
+        <ParamRow label="Largo del tramo"><Stepper value={tf.stepKm} step={0.5} min={0.5} suffix=" km" onChange={(v) => setTf({ stepKm: v })} /></ParamRow>
         <ParamRow label="Tarifa mínima"><Stepper value={tf.min} step={0.5} prefix="S/ " onChange={(v) => setTf({ min: v })} /></ParamRow>
         <View style={{ height: 1, backgroundColor: C.border, marginBottom: 12 }} />
         <ParamRow label="Tipo de margen">
@@ -128,14 +131,21 @@ export function AdminScreen({ navigation }) {
         </ParamRow>
         <View style={{ backgroundColor: C.bg, borderRadius: 12, padding: 12 }}>
           <T.sub style={{ fontWeight: '800' }}>Vista previa</T.sub>
-          <T.sub>Plaza → Mercado: conductor {money(sample.driverFare)} + margen {money(sample.margin)} = <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sample.final)}</Text></T.sub>
-          <T.sub>Plaza → Yanahuara: conductor {money(sampleLong.driverFare)} + margen {money(sampleLong.margin)} = <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sampleLong.final)}</Text></T.sub>
+          <T.sub>Plaza → Mercado ({sample.zone}): <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sample.final)}</Text> = conductor {money(sample.driverFare)} + margen {money(sample.margin)}</T.sub>
+          <T.sub>Plaza → Chicón ({sampleMid.zone}): <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sampleMid.final)}</Text> = conductor {money(sampleMid.driverFare)} + margen {money(sampleMid.margin)}</T.sub>
+          <T.sub>Plaza → Yanahuara ({sampleLong.zone}): <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sampleLong.final)}</Text> = conductor {money(sampleLong.driverFare)} + margen {money(sampleLong.margin)}</T.sub>
         </View>
       </Card>
       <Card style={{ marginTop: 12 }}>
+        <T.h3 style={{ marginBottom: 10 }}>Zonas de Urubamba</T.h3>
+        <ParamRow label="Radio del centro" sub="Desde la Plaza de Armas"><Stepper value={cfg.centerRadiusKm} step={0.1} min={0.3} suffix=" km" onChange={setC('centerRadiusKm')} /></ParamRow>
+        <ParamRow label="Extra al salir del centro"><Stepper value={cfg.leaveCenterExtra} step={0.5} prefix="S/ " onChange={setC('leaveCenterExtra')} /></ParamRow>
+        <ParamRow label="Recorrido normal en el centro" sub="Más que esto suma tramos"><Stepper value={cfg.centerTripKm} step={0.5} min={0.5} suffix=" km" onChange={setC('centerTripKm')} /></ParamRow>
+        <ParamRow label="Solo Urubamba" sub="Desactiva para probar con tu GPS en otra ciudad"><Switch value={cfg.restrictToUrubamba} onValueChange={setC('restrictToUrubamba')} trackColor={{ true: C.gold }} /></ParamRow>
+        <ParamRow label="Recargo nocturno" sub="22:00 a 05:00"><Switch value={cfg.nightSurcharge} onValueChange={setC('nightSurcharge')} trackColor={{ true: C.gold }} /></ParamRow>
         <ParamRow label="Redondear a S/ 0.50" sub="Precios en múltiplos de 0.50"><Switch value={cfg.rounding === '0.50'} onValueChange={(v) => setConfig((c) => ({ ...c, rounding: v ? '0.50' : 'none' }))} trackColor={{ true: C.gold }} /></ParamRow>
         <ParamRow label="Hoy llueve" sub="Activa el recargo transparente por lluvia"><Switch value={cfg.raining} onValueChange={setC('raining')} trackColor={{ true: C.gold }} /></ParamRow>
-        <T.sub>Recargo nocturno automático de 22:00 a 05:00. No hay tarifa dinámica tipo “surge”.</T.sub>
+        <T.sub>El precio depende de la zona y la distancia real por calle. No hay tarifa dinámica tipo “surge”.</T.sub>
       </Card>
 
       <T.h2 style={{ marginTop: 20 }}>Pago retenido</T.h2>
@@ -146,13 +156,13 @@ export function AdminScreen({ navigation }) {
         <ParamRow label="Penalidad al cancelar" sub="Si el conductor ya llegó (va al conductor)"><Stepper value={cfg.cancelFeeArrived} step={0.5} prefix="S/ " onChange={setC('cancelFeeArrived')} /></ParamRow>
       </Card>
 
-      <T.h2 style={{ marginTop: 20 }}>Billeteras</T.h2>
+      <T.h2 style={{ marginTop: 20 }}>Pagos y retiros</T.h2>
       <Card style={{ marginTop: 10 }}>
-        <ParamRow label="Comisión de pasarela" sub="Pendiente: tarifa real (Culqi, Niubiz…)"><Stepper value={cfg.gatewayFeePct} step={0.5} suffix="%" onChange={setC('gatewayFeePct')} /></ParamRow>
+        <ParamRow label="Comisión de pasarela por cobro" sub="Yape/Plin vía Culqi, Niubiz… (pendiente)"><Stepper value={cfg.gatewayFeePct} step={0.5} suffix="%" onChange={setC('gatewayFeePct')} /></ParamRow>
         <ParamRow label="Retiros gratis al mes"><Stepper value={cfg.freeWithdrawalsPerMonth} step={1} onChange={setC('freeWithdrawalsPerMonth')} /></ParamRow>
         <ParamRow label="Costo por retiro extra"><Stepper value={cfg.withdrawFee} step={0.5} prefix="S/ " onChange={setC('withdrawFee')} /></ParamRow>
         <ParamRow label="Retiro mínimo"><Stepper value={cfg.minWithdraw} step={1} prefix="S/ " onChange={setC('minWithdraw')} /></ParamRow>
-        <T.sub>Costo de pasarela por viaje (recarga S/ 20 ≈ 6 viajes): {money((20 * cfg.gatewayFeePct) / 100 / 6)} → sale del margen.</T.sub>
+        <T.sub>Sin billetera, la pasarela cobra en cada viaje: en un viaje de S/ 3.00 son {money((3 * cfg.gatewayFeePct) / 100)} de los {money(cfg.margin.mototaxi.value)} de margen.</T.sub>
       </Card>
 
       <T.h2 style={{ marginTop: 20 }}>Premios</T.h2>

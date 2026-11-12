@@ -27,28 +27,51 @@ export const isNight = (d = new Date()) => {
 };
 
 /** Margen de Cusco Drive para una tarifa de conductor (monto fijo o porcentaje, por categoría). */
-export function marginFor(config, category, driverFare) {
+/** Margen de Cusco Drive sobre el precio final (monto fijo o porcentaje, por categoría). */
+export function marginFor(config, category, final) {
   const m = config.margin[category];
-  return m.type === 'fixed' ? m.value : round2((driverFare * m.value) / 100);
+  return m.type === 'fixed' ? Math.min(m.value, final) : round10((final * m.value) / 100);
 }
 
-/**
- * Precio final con el tarifario. Lo calcula el sistema: ni pasajero ni conductor lo editan.
- *   precio final = tarifa del conductor + margen de Cusco Drive
- * Con redondeo a S/ 0.50 la tarifa del conductor queda en múltiplos de 0.50 y,
- * si el margen es porcentual, la diferencia del redondeo va al margen.
- */
-export function calcPrice(config, { category, origin, dest, cargo = {}, luggage = false, date = new Date() }) {
-  const t = config.tariffs[category];
-  const km = routeKm(origin, dest);
-  const round = config.rounding === '0.50';
+/** ¿El punto está dentro del centro de Urubamba? */
+export const inCenter = (config, p) => haversineKm(URUBAMBA_CENTER, p) <= config.centerRadiusKm;
 
-  let fare = t.base + t.perKm * km;
+/**
+ * Precio final (lo que paga el pasajero). Lo calcula el sistema: nadie lo edita.
+ *  - Recorrido dentro del centro de Urubamba → tarifa del centro (ej. mototaxi S/ 3.00).
+ *  - Si recojo o destino salen del centro → + S/ 1.00 (configurable) y luego sube por tramos
+ *    según la distancia real por calle o lo lejos que está del centro (lo que dé más).
+ *  - El precio incluye el margen de Cusco Drive; el conductor recibe el resto.
+ * km: distancia real de la ruta (OSRM). Si no llega, se estima.
+ */
+export function calcPrice(config, { category, origin, dest, km, minutes, cargo = {}, luggage = false, date = new Date() }) {
+  const t = config.tariffs[category];
+  const dist = km || routeKm(origin, dest);
+  const round = config.rounding === '0.50';
   const extras = [];
+  const centro = inCenter(config, origin) && inCenter(config, dest);
+
+  let fare = t.centerFare;
+  let zone = 'Centro de Urubamba';
+  if (!centro) {
+    // Por zona: qué tan lejos del centro está el punto más alejado
+    const far = Math.max(haversineKm(URUBAMBA_CENTER, origin), haversineKm(URUBAMBA_CENTER, dest));
+    const zoneSteps = Math.floor(Math.max(0, far - config.centerRadiusKm) / t.stepKm);
+    const zoneFare = t.centerFare + config.leaveCenterExtra + zoneSteps * t.stepAmount;
+    // Por distancia: recorridos largos aunque estén cerca del centro
+    const distSteps = Math.ceil(Math.max(0, dist - config.centerTripKm) / t.stepKm);
+    const distFare = t.centerFare + distSteps * t.stepAmount;
+    fare = Math.max(zoneFare, distFare);
+    zone = 'Fuera del centro';
+    extras.push({ label: `Sale del centro (+${config.leaveCenterExtra.toFixed(2)})`, amount: round2(fare - t.centerFare) });
+  } else if (dist > config.centerTripKm) {
+    const steps = Math.ceil((dist - config.centerTripKm) / t.stepKm);
+    fare = t.centerFare + steps * t.stepAmount;
+    extras.push({ label: 'Recorrido largo en el centro', amount: round2(fare - t.centerFare) });
+  }
 
   if (category === 'motocarga' || category === 'mudanza') {
-    const sizes = config.cargoSizes[category];
-    const add = sizes[cargo.size] || 0;
+    const add = config.cargoSizes[category][cargo.size] || 0;
     if (add) extras.push({ label: `Carga ${cargo.size}`, amount: add });
     fare += add;
   }
@@ -57,43 +80,35 @@ export function calcPrice(config, { category, origin, dest, cargo = {}, luggage 
     extras.push({ label: `${cargo.helpers} ayudante(s)`, amount: add });
     fare += add;
   }
-  fare = Math.max(fare, t.min);
-
-  let surcharge = 0;
-  if (isNight(date)) {
+  if (config.nightSurcharge && isNight(date)) {
     const s = config.surcharges.night[category];
-    surcharge += s;
+    fare += s;
     extras.push({ label: 'Recargo nocturno', amount: s });
   }
   if (config.raining) {
     const s = config.surcharges.rain[category];
-    surcharge += s;
+    fare += s;
     extras.push({ label: 'Recargo por lluvia', amount: s });
   }
   if (luggage && category === 'taxi') {
-    surcharge += config.surcharges.luggage;
+    fare += config.surcharges.luggage;
     extras.push({ label: 'Equipaje', amount: config.surcharges.luggage });
   }
 
-  // Los recargos son parte de la tarifa del conductor
-  let driverFare = round2(fare + surcharge);
-  if (round) driverFare = ceil50(driverFare);
-
-  let margin = marginFor(config, category, driverFare);
-  let final = round2(driverFare + margin);
-  if (round) {
-    final = ceil50(final);
-    margin = round2(final - driverFare);
-  }
+  let final = round2(Math.max(fare, t.min));
+  if (round) final = ceil50(final);
+  const margin = marginFor(config, category, final);
+  const driverFare = round2(final - margin);
 
   return {
-    km: Math.round(km * 10) / 10,
-    minutes: Math.max(3, Math.round((km / (category === 'mudanza' ? 22 : 20)) * 60)),
+    km: Math.round(dist * 10) / 10,
+    minutes: minutes || Math.max(2, Math.round((dist / (category === 'mudanza' ? 22 : 20)) * 60)),
     driverFare,
     margin,
-    surcharge: round2(surcharge),
     extras,
     final,
+    zone,
+    centro,
   };
 }
 

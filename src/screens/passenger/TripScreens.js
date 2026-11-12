@@ -7,7 +7,8 @@ import {
   Btn, Card, Row, T, Text, Avatar, Stars, Badge, Sheet, Confirm, ReceiptLine, Chip, Progress, BottomPanel, StepPills,
   CatIcon, RoundBtn, Input, RouteDots,
 } from '../../components/ui';
-import Map, { regionAround } from '../../components/Map';
+import Map from '../../components/Map';
+import { remainingRoute } from '../../logic/geo';
 import { catById, CANCEL_REASONS, QUICK_MESSAGES, RATING_TAGS, CATEGORIES, DISPUTE_REASONS, DEMO_SPEED } from '../../data/mock';
 import { useApp } from '../../store/AppStore';
 import { fmtClock } from '../../logic/pricing';
@@ -54,7 +55,7 @@ export function TripFlow({ navigation }) {
     const simElapsed = Math.min(limit, elapsed * DEMO_SPEED);
     return (
       <View style={{ flex: 1, backgroundColor: C.mapBg }}>
-        <Map initialRegion={{ ...trip.origin, latitude: trip.origin.latitude - 0.003, latitudeDelta: 0.016, longitudeDelta: 0.014 }} markers={[]} />
+        <Map fit={[trip.origin]} fitKey={'s-' + trip.id} zoom={16} padBottom={380} markers={[{ key: 'o', ...trip.origin, kind: 'origin' }, { key: 'd', ...trip.dest, kind: 'dest' }]} route={trip.route?.coords} routeDashed />
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           <View style={{ position: 'absolute', left: 0, right: 0, top: '22%', alignItems: 'center' }}>
             <View style={{ width: 240, height: 240, alignItems: 'center', justifyContent: 'center' }}>
@@ -90,7 +91,7 @@ export function TripFlow({ navigation }) {
         <Confirm
           visible={confirmFree}
           title="¿Cancelar la solicitud?"
-          text={`Ningún conductor aceptó aún: te devolvemos ${money(trip.toPay)} completos a tu billetera.`}
+          text={`Ningún conductor aceptó aún: te devolvemos ${money(trip.toPay)} completos a tu ${trip.method}.`}
           confirmText="Sí, cancelar"
           variant="danger"
           onCancel={() => setConfirmFree(false)}
@@ -105,7 +106,6 @@ export function TripFlow({ navigation }) {
     const others = CATEGORIES.filter((c) => c.id !== trip.category && !!c.cargo === !!cat.cargo);
     const retry = (c) => {
       const r = retrySearch(c);
-      if (!r.ok && r.missing) navigation.navigate('Recharge', { suggest: r.missing });
     };
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: C.white, padding: 24, justifyContent: 'center' }}>
@@ -114,7 +114,7 @@ export function TripFlow({ navigation }) {
           <T.h1 style={{ textAlign: 'center', marginTop: 10 }}>Nadie aceptó en {cfg.searchTimeoutMin} minutos</T.h1>
           <View style={{ backgroundColor: C.greenSoft, borderRadius: 12, padding: 12, marginTop: 14, flexDirection: 'row', alignItems: 'center' }}>
             <Ionicons name="checkmark-circle" size={20} color={C.green} />
-            <Text style={{ color: C.greenText, fontWeight: '800', marginLeft: 8, flex: 1 }}>Te devolvimos {money(trip.toPay)} a tu billetera.</Text>
+            <Text style={{ color: C.greenText, fontWeight: '800', marginLeft: 8, flex: 1 }}>Te devolvimos {money(trip.toPay)} a tu {trip.method}.</Text>
           </View>
           <T.p style={{ textAlign: 'center', color: C.sub, marginTop: 12 }}>Puedes reintentar (se vuelve a retener el pago) o probar otra categoría.</T.p>
         </View>
@@ -142,7 +142,7 @@ export function TripFlow({ navigation }) {
         </View>
         <Card flat style={{ marginTop: 20 }}>
           <ReceiptLine label="Monto retenido" value={money(trip.toPay)} bold />
-          <T.sub>Te escribiremos por WhatsApp en menos de 24 h. Si tienes razón, te devolvemos el dinero a tu billetera.</T.sub>
+          <T.sub>Te escribiremos por WhatsApp en menos de 24 h. Si tienes razón, te devolvemos el dinero a tu {trip.method}.</T.sub>
         </Card>
         <Btn title="Volver al inicio" onPress={endTrip} style={{ marginTop: 20 }} />
       </SafeAreaView>
@@ -211,8 +211,11 @@ export function TripFlow({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: C.mapBg }}>
       <Map
-        initialRegion={regionAround([trip.origin, trip.dest, trip.driverStart], 1.9)}
-        route={trip.status === 'ongoing' ? [trip.driverPos || trip.origin, trip.dest] : trip.driverPos ? [trip.driverPos, trip.origin] : null}
+        fit={trip.status === 'ongoing' ? [trip.origin, trip.dest] : [trip.driverStart || trip.origin, trip.origin]}
+        fitKey={trip.id + '-' + (trip.status === 'ongoing' ? 'trip' : 'pickup')}
+        padBottom={420}
+        padTop={80}
+        route={trip.status === 'ongoing' ? remainingRoute(trip.route?.coords, trip.progress) : trip.approach ? remainingRoute(trip.approach.coords, trip.progress) : null}
         markers={markers}
       />
       <SafeAreaView edges={['top']} style={{ position: 'absolute', top: 0, left: 0, right: 0 }} pointerEvents="box-none">
@@ -279,7 +282,7 @@ export function TripFlow({ navigation }) {
           <View>
             <Row>
               <Ionicons name="lock-closed" size={12} color={C.greenText} />
-              <Text style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>Pagado con billetera · retenido</Text>
+              <Text style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>Pagado con {trip.method} · retenido</Text>
             </Row>
             <Text style={{ fontFamily: F.price, fontSize: 22, color: C.navy }}>{money(trip.toPay)}</Text>
           </View>
@@ -356,7 +359,7 @@ export function TripFinished({ navigation }) {
         <Card>
           <Row style={{ justifyContent: 'space-between' }}>
             <View>
-              <T.sub>Pagado con tu billetera</T.sub>
+              <T.sub>Pagado con {trip.method}</T.sub>
               <Text style={{ fontFamily: F.price, fontSize: 36, color: C.navy }}>{money(trip.toPay)}</Text>
             </View>
             <Badge text={`Liberado · ${trip.releasedHow}`} tone="green" icon="checkmark" />

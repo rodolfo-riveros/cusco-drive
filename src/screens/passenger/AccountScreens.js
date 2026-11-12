@@ -92,7 +92,7 @@ export function RewardsScreen() {
 
         <View style={{ marginTop: 20, backgroundColor: C.navy, borderRadius: 18, padding: 16 }}>
           <Text style={{ fontFamily: F.title, fontSize: 18, color: C.white }}>Invita y ganen los dos</Text>
-          <Text style={{ color: C.navyText, marginTop: 4 }}>Cuando tu amigo complete su primer viaje, ambos reciben S/ 2 de saldo.</Text>
+          <Text style={{ color: C.navyText, marginTop: 4 }}>Cuando tu amigo complete su primer viaje, ambos reciben S/ 2 de descuento.</Text>
           <Row style={{ marginTop: 12 }}>
             <View style={{ flex: 1, borderWidth: 2, borderStyle: 'dashed', borderColor: C.gold, borderRadius: 12, padding: 10, alignItems: 'center' }}>
               <Text style={{ fontFamily: F.title, fontSize: 20, color: C.gold, letterSpacing: 2 }}>{p.referralCode}</Text>
@@ -197,9 +197,9 @@ export function TripDetail({ navigation, route }) {
         <ReceiptLine label="Servicio Cusco Drive" value={money(t.margin)} />
         {t.discount ? <ReceiptLine label={t.coupon || 'Vale'} value={`− ${money(t.discount)}`} color={C.green} /> : null}
         <View style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }} />
-        {t.status === 'completed' ? <ReceiptLine label="Pagado con billetera" value={money(t.paid)} bold /> : null}
+        {t.status === 'completed' ? <ReceiptLine label={`Pagado con ${t.method || 'Yape'}`} value={money(t.paid)} bold /> : null}
         {t.status === 'disputed' ? <ReceiptLine label="Retenido (en revisión)" value={money(t.paid)} bold color={C.goldText} /> : null}
-        {t.refund ? <ReceiptLine label="Devuelto a tu billetera" value={money(t.refund)} bold color={C.green} /> : null}
+        {t.refund ? <ReceiptLine label={`Devuelto a tu ${t.method || 'Yape'}`} value={money(t.refund)} bold color={C.green} /> : null}
         {t.status === 'cancelled' && t.paid ? <ReceiptLine label="Penalidad (al conductor)" value={money(t.paid)} /> : null}
       </Card>
       <Btn title="Reportar un problema" variant="ghost" icon="flag" style={{ marginTop: 16 }} onPress={() => navigation.navigate('Help', { report: true })} />
@@ -209,7 +209,7 @@ export function TripDetail({ navigation, route }) {
 
 // ---------------- PERFIL ----------------
 export function ProfileScreen({ navigation }) {
-  const { state, wallets, logout, setRole } = useApp();
+  const { state, logout, setRole } = useApp();
   const p = state.passenger;
   const completed = p.history.filter((h) => h.status === 'completed').length;
   return (
@@ -221,7 +221,6 @@ export function ProfileScreen({ navigation }) {
         <Row style={{ marginTop: 12 }}>
           <Badge text={`${completed} viajes`} tone="navy" />
           <Badge text={`${p.points} puntos`} tone="purple" style={{ marginLeft: 8 }} />
-          <Badge text={money(wallets.pasajero)} tone="green" icon="wallet" style={{ marginLeft: 8 }} />
         </Row>
       </Card>
 
@@ -232,7 +231,7 @@ export function ProfileScreen({ navigation }) {
 
       <T.label style={{ marginTop: 20 }}>CUENTA</T.label>
       <Card style={{ marginTop: 8, paddingVertical: 4 }}>
-        <ListItem icon="wallet" iconColor={C.green} title="Mi billetera" sub="Recargas y movimientos" onPress={() => navigation.navigate('PWallet')} />
+        <ListItem icon="receipt" iconColor={C.green} title="Mis pagos" sub={`Pagas con ${p.method} · historial y devoluciones`} onPress={() => navigation.navigate('Payments')} />
         <ListItem icon="shield-checkmark" iconColor={C.red} title="Seguridad y SOS" sub="Contactos de emergencia" onPress={() => navigation.navigate('Help')} />
         <ListItem icon="help-circle" title="Ayuda y reportes" onPress={() => navigation.navigate('Help', { report: true })} />
         <ListItem icon="language" title="Idioma" sub="Español · Quechua (pronto)" />

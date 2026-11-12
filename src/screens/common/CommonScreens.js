@@ -3,7 +3,7 @@ import { View, TextInput, TouchableOpacity, FlatList, useWindowDimensions, Anima
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
-import * as Location from 'expo-location';
+import { currentPosition, placeName } from '../../logic/geo';
 import { C, F, shadow } from '../../theme';
 import { Btn, Logo, LogoMark, Wordmark, AndeanBorder, T, Row, Card, Text, CatIcon } from '../../components/ui';
 import { ONBOARDING, CATEGORIES } from '../../data/mock';
@@ -286,13 +286,18 @@ export function LoginScreen({ navigation, route }) {
 }
 
 export function PermissionsScreen({ navigation }) {
+  const { setHere, toast } = useApp();
   const [loading, setLoading] = useState(false);
   const go = () => navigation.reset({ index: 0, routes: [{ name: 'PassengerTabs' }] });
   const ask = async () => {
     setLoading(true);
     try {
-      await Location.requestForegroundPermissionsAsync();
+      const p = await currentPosition();
+      const nm = await placeName(p);
+      setHere({ latitude: p.latitude, longitude: p.longitude, ...nm }, 'gps');
+      toast(`Te ubicamos en: ${nm.name}`, 'success');
     } catch {
+      toast('No pudimos leer tu GPS. Puedes tocar el mapa para marcar tu punto.', 'warn');
       // en web o sin permisos seguimos con la posición simulada
     }
     setLoading(false);
@@ -313,7 +318,7 @@ export function PermissionsScreen({ navigation }) {
         <Row><Ionicons name="navigate" size={20} color={C.navy} /><T.p style={{ marginLeft: 10, flex: 1 }}>Ubicación: para pedir y seguir tu viaje</T.p></Row>
         <Row style={{ marginTop: 12 }}><Ionicons name="notifications" size={20} color={C.navy} /><T.p style={{ marginLeft: 10, flex: 1 }}>Notificaciones: te avisamos cuando llega tu conductor</T.p></Row>
       </Card>
-      <T.sub style={{ marginTop: 12, textAlign: 'center' }}>Demo: tu posición se simula en la Plaza de Armas de Urubamba.</T.sub>
+      <T.sub style={{ marginTop: 12, textAlign: 'center' }}>Si no das permiso, empiezas en la Plaza de Armas de Urubamba y puedes marcar tu punto tocando el mapa.</T.sub>
       <Btn title="Permitir" onPress={ask} loading={loading} style={{ marginTop: 24 }} />
       <Btn title="Ahora no" variant="ghost" onPress={go} style={{ marginTop: 10 }} />
     </SafeAreaView>

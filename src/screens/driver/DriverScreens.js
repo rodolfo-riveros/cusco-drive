@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, ScrollView, Modal, Linking, Animated, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, TouchableOpacity, ScrollView, Modal, Linking, Animated, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
@@ -8,8 +8,9 @@ import {
   Btn, Card, Row, T, Text, Avatar, Stars, Badge, Sheet, Confirm, ReceiptLine, Progress, ListItem, Header, Screen,
   AndeanBorder, BottomPanel, StepPills, CatIcon, NavyHeader, WalletPill, Input, RouteDots,
 } from '../../components/ui';
-import Map, { regionAround } from '../../components/Map';
-import { catById, DRIVER_CANCEL_REASONS, URUBAMBA_CENTER } from '../../data/mock';
+import Map from '../../components/Map';
+import { catById, DRIVER_CANCEL_REASONS } from '../../data/mock';
+import { watchPosition, googleMapsUrl, remainingRoute } from '../../logic/geo';
 import { round2 } from '../../logic/pricing';
 import { forAccount } from '../../logic/ledger';
 import { useApp } from '../../store/AppStore';
@@ -18,9 +19,50 @@ import { useNow } from '../../components/useNow';
 
 export const nextBonus = (cfg, n) => cfg.driverDailyBonuses.find((b) => n < b.trips) || cfg.driverDailyBonuses[cfg.driverDailyBonuses.length - 1];
 
+/** GPS en vivo del conductor: al activarlo, tu posición real mueve el vehículo en el mapa. */
+function useDriverGps() {
+  const { state, setDriverPosition, toast } = useApp();
+  const stop = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const on = state.driver.gps === 'gps';
+  useEffect(() => () => stop.current?.(), []);
+  const toggle = async () => {
+    if (on) {
+      stop.current?.();
+      stop.current = null;
+      setDriverPosition(state.driver.position, 'manual');
+      toast('GPS en vivo desactivado. Toca el mapa para moverte (simulación).');
+      return;
+    }
+    setBusy(true);
+    try {
+      let first = true;
+      stop.current = await watchPosition((p) => {
+        setDriverPosition({ latitude: p.latitude, longitude: p.longitude }, 'gps');
+        if (first) {
+          first = false;
+          toast(`GPS en vivo activado${p.accuracy ? ` (±${Math.round(p.accuracy)} m)` : ''}`, 'success');
+        }
+      });
+    } catch {
+      toast('No se pudo leer el GPS. Activa el permiso de ubicación.', 'warn');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { on, busy, toggle };
+}
+
+const GpsBtn = ({ gps }) => (
+  <TouchableOpacity onPress={gps.toggle} style={[s.gpsBtn, gps.on && { backgroundColor: C.green }]} accessibilityLabel="GPS en vivo">
+    {gps.busy ? <ActivityIndicator color={gps.on ? C.white : C.navy} /> : <Ionicons name={gps.on ? 'navigate' : 'locate'} size={22} color={gps.on ? C.white : C.navy} />}
+  </TouchableOpacity>
+);
+
 // ---------------- C1 · HOME CONDUCTOR ----------------
 export function DriverHome({ navigation }) {
-  const { state, wallets, toggleAvailable } = useApp();
+  const { state, wallets, toggleAvailable, setDriverPosition } = useApp();
+  const gps = useDriverGps();
   const d = state.driver;
   const cfg = state.config;
   const today = d.earningsWeek[6];
@@ -33,7 +75,11 @@ export function DriverHome({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: C.mapBg }}>
       <Map
-        initialRegion={{ ...URUBAMBA_CENTER, latitude: URUBAMBA_CENTER.latitude - 0.004, latitudeDelta: 0.022, longitudeDelta: 0.02 }}
+        fit={[d.position]}
+        fitKey={`dh-${d.gps}-${d.position.latitude.toFixed(3)},${d.position.longitude.toFixed(3)}`}
+        zoom={16}
+        padBottom={340}
+        onPress={(c) => setDriverPosition(c, 'manual')}
         markers={[{ key: 'me', ...d.position, kind: 'vehicle', category: d.profile.category, active: d.available }]}
       />
       <SafeAreaView edges={['top']} style={{ position: 'absolute', top: 0, left: 0, right: 0 }} pointerEvents="box-none">
@@ -44,10 +90,11 @@ export function DriverHome({ navigation }) {
           </TouchableOpacity>
           <WalletPill balance={wallets.conductor} low={0.01} onPress={() => navigation.navigate('Wallet')} label="Mi billetera" />
         </Row>
-        <View style={s.zoneTag}><Text style={{ fontSize: 12, fontWeight: '800', color: C.goldText }}>Zonas con más pedidos: Mercado · Terminal</Text></View>
+        <View style={s.zoneTag}><Text style={{ fontSize: 12, fontWeight: '800', color: C.navy }}>{d.gps === 'gps' ? 'GPS en vivo: tu ubicación real' : 'Toca el mapa para moverte · o activa tu GPS'}</Text></View>
       </SafeAreaView>
 
       <BottomPanel>
+        <GpsBtn gps={gps} />
         <TouchableOpacity activeOpacity={0.9} onPress={toggleAvailable} style={[s.toggle, { backgroundColor: d.available ? C.green : C.navy }]} accessibilityRole="switch">
           <View style={s.switchTrack}>
             <View style={[s.switchKnob, { backgroundColor: d.available ? C.green : C.muted, alignSelf: d.available ? 'flex-end' : 'flex-start' }]} />
@@ -122,7 +169,7 @@ export function IncomingRequestModal() {
             <Text style={{ fontFamily: F.price, fontSize: 52, color: C.greenText, lineHeight: 60 }}>{money(req.price.driverFare)}</Text>
             <Row style={{ marginTop: 2 }}>
               <Ionicons name="lock-closed" size={13} color={C.sub} />
-              <Text style={{ fontSize: 13, color: C.sub, marginLeft: 4 }}>Ya pagado con billetera · se te paga al llegar</Text>
+              <Text style={{ fontSize: 13, color: C.sub, marginLeft: 4 }}>Pagado con {req.method} · se te paga al llegar</Text>
             </Row>
             {req.discount ? <Text style={{ color: C.purple, fontSize: 12, marginTop: 4, fontWeight: '800' }}>El pasajero usa un vale: tú igual recibes tu tarifa completa</Text> : null}
           </View>
@@ -147,7 +194,8 @@ export function IncomingRequestModal() {
 // ---------------- VIAJE DEL CONDUCTOR ----------------
 const D_STEPS = ['Llegué', 'Iniciar viaje', 'Finalizado'];
 export function DriverTrip({ navigation }) {
-  const { state, wallets, driverAdvance, driverJump, driverCancel, finishDriverTrip, closeDriverTrip, toast } = useApp();
+  const { state, wallets, driverAdvance, driverJump, driverCancel, finishDriverTrip, closeDriverTrip, toast, setDriverPosition } = useApp();
+  const gps = useDriverGps();
   const a = state.driver.active;
   const cfg = state.config;
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -168,7 +216,7 @@ export function DriverTrip({ navigation }) {
   if (!a) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 
   const target = a.stage === 'toPickup' || a.stage === 'atPickup' ? a.origin : a.dest;
-  const openNav = () => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}&travelmode=driving`);
+  const openNav = () => Linking.openURL(googleMapsUrl(a.pos, target));
 
   // ----- Pago retenido → liberado -----
   if (a.stage === 'awaitingRelease' || a.stage === 'released') {
@@ -225,6 +273,7 @@ export function DriverTrip({ navigation }) {
     ongoing: { title: 'Viaje en curso', btn: 'Finalizar viaje', variant: 'success', idx: 2 },
   }[a.stage];
   const distM = Math.round(Math.hypot((a.pos.latitude - a.dest.latitude) * 111000, (a.pos.longitude - a.dest.longitude) * 108000));
+  const pickM = Math.round(Math.hypot((a.pos.latitude - a.origin.latitude) * 111000, (a.pos.longitude - a.origin.longitude) * 108000));
 
   const onMain = () => {
     if (a.stage !== 'ongoing') return driverAdvance();
@@ -238,8 +287,13 @@ export function DriverTrip({ navigation }) {
   return (
     <View style={{ flex: 1 }}>
       <Map
-        initialRegion={regionAround([a.legStart, a.origin, a.dest], 1.7)}
-        route={a.stage === 'ongoing' ? [a.pos, a.dest] : [a.pos, a.origin]}
+        fit={a.stage === 'ongoing' ? [a.origin, a.dest] : [a.pos, a.origin]}
+        fitKey={`${a.id}-${a.stage === 'ongoing' ? 't' : 'p'}-${a.tripRoute?.real ? 1 : 0}`}
+        padBottom={430}
+        padTop={80}
+        onPress={(c) => setDriverPosition(c, state.driver.gps === 'gps' ? 'gps' : 'manual')}
+        route={a.manual || state.driver.gps === 'gps' ? [a.pos, target] : remainingRoute((a.stage === 'ongoing' ? a.tripRoute : a.toPickupRoute)?.coords, a.stage === 'atPickup' ? 1 : a.progress)}
+        routeDashed={!!a.manual || state.driver.gps === 'gps'}
         markers={[
           { key: 'o', latitude: a.origin.latitude, longitude: a.origin.longitude, kind: 'origin', label: a.stage === 'toPickup' ? 'Recojo' : undefined },
           { key: 'd', latitude: a.dest.latitude, longitude: a.dest.longitude, kind: 'dest', label: a.stage === 'ongoing' ? a.dest.name : undefined },
@@ -251,17 +305,19 @@ export function DriverTrip({ navigation }) {
           <View style={[s.pill, { paddingHorizontal: 14 }]}><Text style={{ fontWeight: '800', color: C.greenText }}>Ganas {money(a.price.driverFare)}</Text></View>
           <TouchableOpacity onPress={openNav} style={[s.pill, { backgroundColor: C.navy, paddingHorizontal: 14 }]}>
             <Ionicons name="navigate" size={18} color={C.white} />
-            <Text style={{ color: C.white, fontWeight: '800', marginLeft: 6 }}>Navegar</Text>
+            <Text style={{ color: C.white, fontWeight: '800', marginLeft: 6 }}>Google Maps</Text>
           </TouchableOpacity>
         </Row>
       </SafeAreaView>
       <BottomPanel>
+        <GpsBtn gps={gps} />
         <Row style={{ justifyContent: 'space-between' }}>
           <StepPills steps={D_STEPS} index={stageInfo.idx} />
           <TouchableOpacity onPress={driverJump} style={s.demo}><Text style={{ color: C.purple, fontWeight: '800', fontSize: 11 }}>Demo: GPS ⏩</Text></TouchableOpacity>
         </Row>
         <T.h2 style={{ marginTop: 10 }}>{stageInfo.title}</T.h2>
-        {a.stage === 'ongoing' ? <T.sub>A {distM} m del destino · debes estar a menos de {cfg.arrivalRadiusM} m para finalizar</T.sub> : null}
+        <T.sub>{a.stage === 'ongoing' ? `A ${distM} m del destino · debes estar a menos de ${cfg.arrivalRadiusM} m para finalizar` : a.stage === 'toPickup' ? `Recojo a ${pickM} m · ${(a.toPickupRoute?.km || 0).toFixed(1)} km por calle` : 'Espera al pasajero en el punto de recojo'}</T.sub>
+        <T.sub style={{ fontSize: 11 }}>{state.driver.gps === 'gps' ? 'Usando tu GPS real' : 'Simulación: avanzas solo por la ruta, o toca el mapa para moverte'}</T.sub>
         <Row style={{ marginTop: 12 }}>
           <Avatar name={a.passenger} size={48} />
           <View style={{ flex: 1, marginLeft: 12 }}>
@@ -591,4 +647,5 @@ const s = StyleSheet.create({
   callBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.goldSoft, alignItems: 'center', justifyContent: 'center' },
   demo: { backgroundColor: C.purpleSoft, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10 },
   mini: { flex: 1, marginHorizontal: 4, borderRadius: 12, padding: 10 },
+  gpsBtn: { position: 'absolute', right: 16, top: -62, width: 50, height: 50, borderRadius: 25, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', ...shadow },
 });

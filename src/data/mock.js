@@ -18,12 +18,19 @@ export const catById = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES
 
 // Parámetros de negocio: los cambia el administrador (panel admin). Nada de esto va fijo en el código.
 export const INITIAL_CONFIG = {
+  // Tarifa por zonas (precio final que paga el pasajero, ya incluye el margen)
+  //  centerFare: dentro del centro de Urubamba · stepKm/stepAmount: cuánto sube por tramo fuera del centro
   tariffs: {
-    mototaxi: { base: 1.5, perKm: 0.7, min: 2.5 },
-    taxi: { base: 3.0, perKm: 1.2, min: 5.0 },
-    motocarga: { base: 3.0, perKm: 1.0, min: 4.0 },
-    mudanza: { base: 30, perKm: 3.0, min: 40 },
+    mototaxi: { centerFare: 3, stepKm: 1.5, stepAmount: 1, min: 3 },
+    taxi: { centerFare: 5, stepKm: 1.5, stepAmount: 1.5, min: 5 },
+    motocarga: { centerFare: 5, stepKm: 1.5, stepAmount: 1.5, min: 5 },
+    mudanza: { centerFare: 50, stepKm: 2, stepAmount: 5, min: 50 },
   },
+  centerRadiusKm: 1.2, // radio del "centro de Urubamba" desde la Plaza de Armas
+  centerTripKm: 2.5, // recorrido normal dentro del centro (más que esto suma tramos)
+  leaveCenterExtra: 1, // + S/ 1.00 cuando el viaje sale del centro
+  nightSurcharge: false,
+  restrictToUrubamba: true, // cobertura solo en Urubamba (desactívalo en admin para probar en otra ciudad)
   // Margen de Cusco Drive incluido en el precio del pasajero
   margin: {
     mototaxi: { type: 'fixed', value: 0.5 },
@@ -50,14 +57,9 @@ export const INITIAL_CONFIG = {
   arrivalRadiusM: 300, // GPS debe estar cerca del destino para finalizar
   cancelFeeArrived: 1.0, // penalidad si el pasajero cancela con el conductor ya en el punto (va al conductor)
 
-  // Billetera del pasajero
-  rechargeAmounts: [10, 20, 50],
-  minRecharge: 10,
-  rechargeBonuses: [
-    { min: 20, bonus: 1 },
-    { min: 50, bonus: 3 },
-  ],
-  gatewayFeePct: 3.5, // pendiente: tarifa real de la pasarela (Culqi / Niubiz / Izipay…)
+  // Pago del pasajero: directo con Yape / Plin en cada viaje (sin billetera ni recargas)
+  paymentMethods: ['Yape', 'Plin'],
+  gatewayFeePct: 3.5, // pendiente: comisión real de la pasarela por cobro (Culqi / Niubiz / Izipay…)
 
   // Billetera del conductor
   minWithdraw: 5,
@@ -123,11 +125,11 @@ const inDays = (d) => {
 };
 
 export const INITIAL_HISTORY = [
-  { id: 'h1', date: at(1, 8), category: 'mototaxi', origin: 'Plaza de Armas', dest: 'Mercado de Urubamba', driverName: 'Juan Mamani', plate: 'MT-4521', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 3, status: 'completed', rating: 5 },
-  { id: 'h2', date: at(2, 18), category: 'taxi', origin: 'Terminal de Urubamba', dest: 'Yanahuara', driverName: 'Carlos Ccori', plate: 'X2T-541', driverFare: 9.5, margin: 0.5, discount: 1, final: 10, paid: 9, status: 'completed', rating: 5, coupon: 'Cupón de bienvenida' },
-  { id: 'h3', date: at(4, 7), category: 'mototaxi', origin: 'Hospital de Urubamba', dest: 'Colegio La Salle', driverName: 'Rosa Huamán', plate: 'MT-3310', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 3, status: 'completed', rating: 4 },
-  { id: 'h5', date: at(0, 7, 40), category: 'mototaxi', origin: 'Terminal de Urubamba', dest: 'Óvalo Pachacútec', driverName: 'Pedro Quispe', plate: 'MT-7788', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 3, status: 'disputed', disputeReason: 'No llegué a mi destino' },
-  { id: 'h4', date: at(6, 20), category: 'mototaxi', origin: 'Estadio Municipal', dest: 'Plaza de Armas', driverName: '—', plate: '—', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 0, refund: 3, status: 'cancelled', cancelReason: 'Cancelado antes de que un conductor acepte' },
+  { id: 'h1', date: at(1, 8), category: 'mototaxi', origin: 'Plaza de Armas', dest: 'Mercado de Urubamba', driverName: 'Juan Mamani', plate: 'MT-4521', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 3, method: 'Yape', status: 'completed', rating: 5 },
+  { id: 'h2', date: at(2, 18), category: 'taxi', origin: 'Terminal de Urubamba', dest: 'Yanahuara', driverName: 'Carlos Ccori', plate: 'X2T-541', driverFare: 9.5, margin: 0.5, discount: 1, final: 10, paid: 9, method: 'Yape', status: 'completed', rating: 5, coupon: 'Cupón de bienvenida' },
+  { id: 'h3', date: at(4, 7), category: 'mototaxi', origin: 'Hospital de Urubamba', dest: 'Colegio La Salle', driverName: 'Rosa Huamán', plate: 'MT-3310', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 3, method: 'Yape', status: 'completed', rating: 4 },
+  { id: 'h5', date: at(0, 7, 40), category: 'mototaxi', origin: 'Terminal de Urubamba', dest: 'Óvalo Pachacútec', driverName: 'Pedro Quispe', plate: 'MT-7788', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 3, method: 'Yape', status: 'disputed', disputeReason: 'No llegué a mi destino' },
+  { id: 'h4', date: at(6, 20), category: 'mototaxi', origin: 'Estadio Municipal', dest: 'Plaza de Armas', driverName: '—', plate: '—', driverFare: 2.5, margin: 0.5, discount: 0, final: 3, paid: 0, refund: 3, method: 'Yape', status: 'cancelled', cancelReason: 'Cancelado antes de que un conductor acepte' },
 ];
 
 export const INITIAL_COUPONS = [
@@ -146,45 +148,33 @@ export const SEED_LEDGER_EVENTS = [
     { account: 'plataforma', type: 'vale', amount: -31, label: 'Premios entregados en el mes (demo)' },
     { account: 'externo', type: 'historico', amount: -155.5, label: 'Saldo inicial (demo)' },
   ] },
-  // Pasajero: recarga y viajes
-  { date: at(7, 19, 10), entries: [
-    { account: 'externo', type: 'recarga', amount: -30, label: 'Recarga por Yape' },
-    { account: 'pasajero', type: 'recarga', amount: 30, label: 'Recarga por Yape' },
-  ] },
-  { date: at(7, 19, 10), entries: [
-    { account: 'plataforma', type: 'bono_recarga', amount: -1, label: 'Bono por recargar S/ 30' },
-    { account: 'pasajero', type: 'bono_recarga', amount: 1, label: 'Bono por recargar S/ 30' },
-  ] },
-  { date: at(7, 19, 10), entries: [
-    { account: 'plataforma', type: 'pasarela', amount: -1.05, label: 'Comisión pasarela (recarga S/ 30)' },
-    { account: 'externo', type: 'pasarela', amount: 1.05, label: 'Comisión pasarela (recarga S/ 30)' },
-  ] },
+  // Pasajero: pagos de viajes con Yape / Plin (sin billetera)
   { date: at(6, 20), tripId: 'h4', entries: [
-    { account: 'pasajero', type: 'retencion', amount: -3, label: 'Pago retenido · Estadio → Plaza' },
+    { account: 'externo', type: 'retencion', amount: -3, label: 'Pago retenido · Estadio → Plaza (Yape)' },
     { account: 'retenido', type: 'retencion', amount: 3, label: 'Pago retenido · Estadio → Plaza' },
   ] },
   { date: at(6, 20, 17), tripId: 'h4', entries: [
     { account: 'retenido', type: 'reembolso', amount: -3, label: 'Reembolso · cancelado sin conductor' },
-    { account: 'pasajero', type: 'reembolso', amount: 3, label: 'Reembolso · cancelado sin conductor' },
+    { account: 'externo', type: 'reembolso', amount: 3, label: 'Devolución a Yape' },
   ] },
   { date: at(4, 7), tripId: 'h3', entries: [
-    { account: 'pasajero', type: 'retencion', amount: -3, label: 'Viaje Hospital → La Salle' },
+    { account: 'externo', type: 'retencion', amount: -3, label: 'Viaje Hospital → La Salle (Yape)' },
     { account: 'conductores', type: 'liberacion', amount: 2.5, label: 'Pago a Rosa Huamán' },
     { account: 'plataforma', type: 'margen', amount: 0.5, label: 'Margen viaje Hospital → La Salle' },
   ] },
   { date: at(2, 18), tripId: 'h2', entries: [
-    { account: 'pasajero', type: 'retencion', amount: -9, label: 'Viaje Terminal → Yanahuara' },
+    { account: 'externo', type: 'retencion', amount: -9, label: 'Viaje Terminal → Yanahuara (Yape)' },
     { account: 'conductores', type: 'liberacion', amount: 9.5, label: 'Pago a Carlos Ccori' },
     { account: 'plataforma', type: 'margen', amount: 0.5, label: 'Margen viaje Terminal → Yanahuara' },
     { account: 'plataforma', type: 'vale', amount: -1, label: 'Cupón de bienvenida' },
   ] },
   { date: at(1, 8), tripId: 'h1', entries: [
-    { account: 'pasajero', type: 'retencion', amount: -3, label: 'Viaje Plaza → Mercado' },
+    { account: 'externo', type: 'retencion', amount: -3, label: 'Viaje Plaza → Mercado (Yape)' },
     { account: 'conductores', type: 'liberacion', amount: 2.5, label: 'Pago a Juan Mamani' },
     { account: 'plataforma', type: 'margen', amount: 0.5, label: 'Margen viaje Plaza → Mercado' },
   ] },
   { date: at(0, 7, 40), tripId: 'h5', entries: [
-    { account: 'pasajero', type: 'retencion', amount: -3, label: 'Pago retenido · Terminal → Óvalo' },
+    { account: 'externo', type: 'retencion', amount: -3, label: 'Pago retenido · Terminal → Óvalo (Yape)' },
     { account: 'retenido', type: 'retencion', amount: 3, label: 'Pago retenido · Terminal → Óvalo' },
   ] },
   // Conductor (Juan): viajes de ayer, bono y retiro
@@ -252,7 +242,7 @@ export const RATING_TAGS = ['Puntual', 'Amable', 'Manejo seguro', 'Vehículo lim
 export const ONBOARDING = [
   { key: 'pedir', title: 'Pide tu movilidad\nen 3 toques', text: 'Mototaxi, taxi, motocarga o mudanza. Todo Urubamba en una sola app.' },
   { key: 'precio', title: 'Precio claro,\nsin regateo', text: 'Antes de pedir ves cuánto pagarás. El precio no cambia durante el viaje.' },
-  { key: 'billetera', title: 'Paga con tu\nbilletera, sin efectivo', text: 'Recarga con Yape o Plin. Tu pago queda protegido y solo se libera al conductor cuando llegas.' },
+  { key: 'billetera', title: 'Paga con Yape o Plin', text: 'Pagas al pedir, sin recargas ni efectivo. Tu pago queda protegido y solo se libera al conductor cuando llegas.' },
 ];
 
 // Reclamo abierto de ejemplo (el dinero sigue retenido hasta que el admin lo resuelva)

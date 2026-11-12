@@ -311,7 +311,7 @@ export function RouteDots({ origin, dest, originSub, destSub, labels = true, sty
 }
 
 /** Tarjeta azul de precio fijo (P2). */
-export function PriceCard({ price, discount = 0, toPay, couponTitle, balance }) {
+export function PriceCard({ price, discount = 0, toPay, couponTitle, method = 'Yape' }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={st.priceCard}>
@@ -322,10 +322,10 @@ export function PriceCard({ price, discount = 0, toPay, couponTitle, balance }) 
         </View>
         <View style={{ alignItems: 'flex-end', paddingBottom: 6 }}>
           <Row>
-            <Ionicons name="wallet-outline" size={18} color={C.white} />
-            <Text style={{ color: C.white, fontWeight: '800', marginLeft: 6 }}>Billetera</Text>
+            <Ionicons name="phone-portrait-outline" size={18} color={C.white} />
+            <Text style={{ color: C.white, fontWeight: '800', marginLeft: 6 }}>{method}</Text>
           </Row>
-          {balance !== undefined ? <Text style={{ color: C.navyText, fontSize: 12, marginTop: 2 }}>Saldo {money(balance)}</Text> : null}
+          <Text style={{ color: C.navyText, fontSize: 12, marginTop: 2 }}>{price.km} km · {price.zone}</Text>
         </View>
       </Row>
       {discount > 0 ? <Text style={{ color: '#9EE6AE', fontWeight: '800', fontSize: 13 }}>Antes {money(price.final)} · ahorras {money(discount)}</Text> : null}
@@ -341,7 +341,7 @@ export function PriceCard({ price, discount = 0, toPay, couponTitle, balance }) 
           ))}
           <Line label="Servicio Cusco Drive" value={money(price.margin)} />
           {discount > 0 ? <Line label={couponTitle || 'Vale'} value={`− ${money(discount)}`} green /> : null}
-          <Line label="Se descuenta de tu billetera al pedir" value={money(toPay ?? price.final)} bold />
+          <Line label={`Pagas con ${method}`} value={money(toPay ?? price.final)} bold />
           <Text style={{ color: C.navyText, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
             Tu pago queda retenido y se libera al conductor recién cuando llegas a tu destino.
           </Text>
