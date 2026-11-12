@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "cusco-drive",
+    "name": "Cusco Drive",
     "slug": "cusco-drive",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,14 +11,29 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#12285C",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "pe.cuscodrive.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "VIBRATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Cusco Drive usa tu ubicación para que el conductor te encuentre."
+        }
+      ],
+      "expo-font"
+    ]
   }
 }
