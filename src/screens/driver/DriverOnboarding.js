@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '../../theme';
-import { Btn, Card, Row, T, Chip, Header, Badge, AndeanBorder } from '../../components/ui';
+import { Btn, Card, Row, T, Text, Chip, Header, Badge, AndeanBorder } from '../../components/ui';
 import { CATEGORIES } from '../../data/mock';
 import { useApp } from '../../store/AppStore';
 
@@ -62,7 +62,7 @@ export function DriverRegister({ navigation }) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="Registro de conductor" onBack={() => (step ? setStep(step - 1) : navigation.reset({ index: 0, routes: [{ name: 'RoleSelect' }] }))} />
+      <Header title="Registro de conductor" onBack={() => (step ? setStep(step - 1) : navigation.reset({ index: 0, routes: [{ name: 'Login' }] }))} />
       <Row style={{ paddingHorizontal: 16 }}>
         {STEPS.map((s, i) => (
           <View key={s} style={{ flex: 1, alignItems: 'center' }}>
@@ -86,7 +86,7 @@ export function DriverRegister({ navigation }) {
             <T.h3>Tipo de servicio</T.h3>
             <Row style={{ flexWrap: 'wrap', marginTop: 8 }}>
               {CATEGORIES.map((c) => (
-                <Chip key={c.id} emoji={c.emoji} label={c.name} active={f.category === c.id} color={c.color} onPress={() => set('category', c.id)} style={{ marginBottom: 8 }} />
+                <Chip key={c.id} label={c.name} active={f.category === c.id} color={c.color} onPress={() => set('category', c.id)} style={{ marginBottom: 8 }} />
               ))}
             </Row>
             <Field label="Marca, modelo y color" value={f.vehicle} onChange={(v) => set('vehicle', v)} placeholder="Ej. Bajaj RE 2022 · Azul" />
@@ -108,7 +108,7 @@ export function DriverRegister({ navigation }) {
           </Card>
         ) : null}
         <Btn title={step === 3 ? 'Enviar para revisión' : 'Continuar'} onPress={next} style={{ marginTop: 16 }} />
-        <Btn title="🧪 Autocompletar datos demo" variant="ghost" small onPress={fillDemo} style={{ marginTop: 10 }} />
+        <Btn title="Autocompletar datos demo" variant="ghost" small onPress={fillDemo} style={{ marginTop: 10 }} />
         <Btn
           title="Entrar con conductor demo ya aprobado"
           variant="ghost"
@@ -150,7 +150,7 @@ export function DriverStatus({ navigation }) {
           <T.h1 style={{ marginTop: 16, textAlign: 'center' }}>{approved ? '¡Fuiste aprobado!' : rejected ? 'Registro rechazado' : 'Estamos revisando tus documentos'}</T.h1>
           <T.p style={{ textAlign: 'center', color: C.sub, marginTop: 8 }}>
             {approved
-              ? 'Ya puedes recibir viajes. Recuerda mantener saldo para la comisión.'
+              ? 'Ya puedes recibir viajes. Sin comisión: cada viaje se deposita completo en tu billetera y puedes retirarlo el mismo día.'
               : rejected
               ? `Motivo: ${d.rejectReason}`
               : 'El administrador verifica tu DNI, licencia, SOAT y vehículo. Suele tardar menos de 24 horas.'}
@@ -162,7 +162,7 @@ export function DriverStatus({ navigation }) {
           {d.profile.documents.map((doc) => (
             <Row key={doc.id} style={{ justifyContent: 'space-between', marginTop: 10 }}>
               <T.p>{doc.name}</T.p>
-              <Badge text={approved ? 'Aprobado' : rejected && doc.id === 'soat' ? 'Observado' : 'En revisión'} color={approved ? C.green : rejected && doc.id === 'soat' ? C.red : C.yellowWarn} />
+              <Badge text={approved ? 'Aprobado' : rejected && doc.id === 'soat' ? 'Observado' : 'En revisión'} tone={approved ? 'green' : rejected && doc.id === 'soat' ? 'red' : 'gold'} />
             </Row>
           ))}
         </Card>
@@ -172,15 +172,15 @@ export function DriverStatus({ navigation }) {
           <Btn title="Corregir y reenviar" style={{ marginTop: 20 }} onPress={() => { resetDriverRegistration(); navigation.reset({ index: 0, routes: [{ name: 'DriverRegister' }] }); }} />
         ) : (
           <Card style={{ marginTop: 20, backgroundColor: C.purpleSoft }}>
-            <T.h3 style={{ color: C.purple }}>🧪 Simular decisión del administrador</T.h3>
+            <T.h3 style={{ color: C.purple }}>Simular decisión del administrador</T.h3>
             <Row style={{ marginTop: 12 }}>
               <Btn small title="Aprobar" variant="success" style={{ flex: 1, marginRight: 8 }} onPress={() => adminDecideSelf(true)} />
               <Btn small title="Rechazar" variant="danger" style={{ flex: 1 }} onPress={() => adminDecideSelf(false, 'La foto del SOAT no se lee bien.')} />
             </Row>
           </Card>
         )}
-        <Btn title="Cerrar sesión" variant="ghost" style={{ marginTop: 12 }} onPress={() => { logout(); navigation.reset({ index: 0, routes: [{ name: 'RoleSelect' }] }); }} />
-        <AndeanBorder style={{ marginTop: 24 }} height={8} />
+        <Btn title="Cerrar sesión" variant="ghost" style={{ marginTop: 12 }} onPress={() => { logout(); navigation.reset({ index: 0, routes: [{ name: 'Login' }] }); }} />
+        <AndeanBorder style={{ marginTop: 24 }} />
       </ScrollView>
     </SafeAreaView>
   );

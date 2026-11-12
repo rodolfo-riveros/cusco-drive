@@ -17,6 +17,7 @@ export const routeKm = (a, b) => Math.max(0.3, haversineKm(a, b) * 1.3);
 
 export const inServiceArea = (p) => haversineKm(URUBAMBA_CENTER, p) <= SERVICE_RADIUS_KM;
 
+export const round2 = (n) => Math.round(n * 100) / 100;
 export const round10 = (n) => Math.round(n * 10) / 10;
 const ceil50 = (n) => Math.ceil(n * 2 - 1e-9) / 2;
 
@@ -25,14 +26,22 @@ export const isNight = (d = new Date()) => {
   return h >= 22 || h < 5;
 };
 
+/** Margen de Cusco Drive para una tarifa de conductor (monto fijo o porcentaje, por categoría). */
+export function marginFor(config, category, driverFare) {
+  const m = config.margin[category];
+  return m.type === 'fixed' ? m.value : round2((driverFare * m.value) / 100);
+}
+
 /**
- * Calcula el precio final con el tarifario.
- * Precio final = tarifa del conductor + comisión Cusco Drive.
- * El pasajero y el conductor NO pueden editarlo.
+ * Precio final con el tarifario. Lo calcula el sistema: ni pasajero ni conductor lo editan.
+ *   precio final = tarifa del conductor + margen de Cusco Drive
+ * Con redondeo a S/ 0.50 la tarifa del conductor queda en múltiplos de 0.50 y,
+ * si el margen es porcentual, la diferencia del redondeo va al margen.
  */
 export function calcPrice(config, { category, origin, dest, cargo = {}, luggage = false, date = new Date() }) {
   const t = config.tariffs[category];
   const km = routeKm(origin, dest);
+  const round = config.rounding === '0.50';
 
   let fare = t.base + t.perKm * km;
   const extras = [];
@@ -66,33 +75,32 @@ export function calcPrice(config, { category, origin, dest, cargo = {}, luggage 
     extras.push({ label: 'Equipaje', amount: config.surcharges.luggage });
   }
 
-  // Los recargos van para el conductor
-  const driverFare = round10(fare + surcharge);
+  // Los recargos son parte de la tarifa del conductor
+  let driverFare = round2(fare + surcharge);
+  if (round) driverFare = ceil50(driverFare);
 
-  const cm = config.commission[category];
-  let commission = cm.type === 'fixed' ? cm.value : round10((driverFare * cm.value) / 100);
-
-  let final = round10(driverFare + commission);
-  if (config.rounding === '0.50') {
+  let margin = marginFor(config, category, driverFare);
+  let final = round2(driverFare + margin);
+  if (round) {
     final = ceil50(final);
-    commission = round10(final - driverFare);
+    margin = round2(final - driverFare);
   }
 
   return {
     km: Math.round(km * 10) / 10,
     minutes: Math.max(3, Math.round((km / (category === 'mudanza' ? 22 : 20)) * 60)),
     driverFare,
-    commission,
-    surcharge: round10(surcharge),
+    margin,
+    surcharge: round2(surcharge),
     extras,
     final,
   };
 }
 
-/** Descuento de un cupón: tope de valor, sin superar el precio */
+/** Descuento de un vale: con tope de valor y sin superar el margen + tarifa. */
 export function couponDiscount(config, coupon, final) {
   if (!coupon) return 0;
-  return round10(Math.min(coupon.amount, config.couponMaxValue, final));
+  return round2(Math.min(coupon.amount, config.couponMaxValue, final));
 }
 
 export function couponValid(c) {
@@ -104,4 +112,9 @@ export const fmtDate = (iso) => {
   const dd = d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
   const hh = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
   return `${dd} · ${hh}`;
+};
+
+export const fmtClock = (secs) => {
+  const s = Math.max(0, Math.round(secs));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };

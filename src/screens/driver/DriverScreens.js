@@ -1,158 +1,143 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Switch, Modal, Linking, Animated, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, TouchableOpacity, ScrollView, Modal, Linking, Animated, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { C, shadow, money } from '../../theme';
-import { Btn, Card, Row, T, Avatar, Stars, Badge, Sheet, Confirm, ReceiptLine, Progress, BalancePill, ListItem, Empty, Header, Screen, AndeanBorder } from '../../components/ui';
+import Svg, { Circle } from 'react-native-svg';
+import { C, F, shadow, money } from '../../theme';
+import {
+  Btn, Card, Row, T, Text, Avatar, Stars, Badge, Sheet, Confirm, ReceiptLine, Progress, ListItem, Header, Screen,
+  AndeanBorder, BottomPanel, StepPills, CatIcon, NavyHeader, WalletPill, Input, RouteDots,
+} from '../../components/ui';
 import Map, { regionAround } from '../../components/Map';
 import { catById, DRIVER_CANCEL_REASONS, URUBAMBA_CENTER } from '../../data/mock';
-import { fmtDate, round10 } from '../../logic/pricing';
+import { round2 } from '../../logic/pricing';
+import { forAccount } from '../../logic/ledger';
 import { useApp } from '../../store/AppStore';
+import { Movements } from '../passenger/WalletScreens';
+import { useNow } from '../../components/useNow';
 
-// ---------------- HOME CONDUCTOR ----------------
+export const nextBonus = (cfg, n) => cfg.driverDailyBonuses.find((b) => n < b.trips) || cfg.driverDailyBonuses[cfg.driverDailyBonuses.length - 1];
+
+// ---------------- C1 · HOME CONDUCTOR ----------------
 export function DriverHome({ navigation }) {
-  const { state, toggleAvailable, activateFreeDay } = useApp();
+  const { state, wallets, toggleAvailable } = useApp();
   const d = state.driver;
   const cfg = state.config;
   const today = d.earningsWeek[6];
-  const tripsLeft = Math.floor(d.balance / (cfg.commission[d.profile.category]?.type === 'fixed' ? cfg.commission[d.profile.category].value : 0.5));
-  const low = d.balance < cfg.lowBalanceAlert;
-  const empty = d.balance < cfg.minDriverBalance;
+  const nb = nextBonus(cfg, today.trips);
 
   useEffect(() => {
     if (d.active) navigation.navigate('DriverTrip');
   }, [d.active?.id]);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: C.mapBg }}>
       <Map
-        initialRegion={{ ...URUBAMBA_CENTER, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
-        showArea
-        markers={[{ key: 'me', ...d.position, emoji: catById(d.profile.category).emoji, color: d.available ? C.green : C.muted }]}
+        initialRegion={{ ...URUBAMBA_CENTER, latitude: URUBAMBA_CENTER.latitude - 0.004, latitudeDelta: 0.022, longitudeDelta: 0.02 }}
+        markers={[{ key: 'me', ...d.position, kind: 'vehicle', category: d.profile.category, active: d.available }]}
       />
-      <SafeAreaView edges={['top']} style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
-        <Row style={{ padding: 14, justifyContent: 'space-between' }}>
-          <View style={[s.pill]}>
-            <Avatar name={d.profile.name} size={30} color={C.green} />
-            <Text style={{ marginLeft: 8, fontWeight: '800', color: C.navy }}>{d.profile.name.split(' ')[0]}</Text>
-            {d.profile.badges?.includes('estrella') ? <Text style={{ marginLeft: 4 }}>⭐</Text> : null}
-          </View>
-          <BalancePill balance={d.balance} cfg={cfg} onPress={() => navigation.navigate('Wallet')} />
+      <SafeAreaView edges={['top']} style={{ position: 'absolute', top: 0, left: 0, right: 0 }} pointerEvents="box-none">
+        <Row style={{ paddingHorizontal: 16, paddingTop: 12, justifyContent: 'space-between' }}>
+          <TouchableOpacity onPress={() => navigation.navigate('DriverProfile')} style={s.pill}>
+            <Avatar name={d.profile.name} size={36} />
+            <Text style={{ marginLeft: 8, fontWeight: '800', fontSize: 14 }}>★ {d.profile.rating.toFixed(1)}</Text>
+          </TouchableOpacity>
+          <WalletPill balance={wallets.conductor} low={0.01} onPress={() => navigation.navigate('Wallet')} label="Mi billetera" />
         </Row>
-        {empty ? (
-          <TouchableOpacity onPress={() => navigation.navigate('Recharge')} style={[s.alert, { backgroundColor: C.red }]}>
-            <Ionicons name="alert-circle" size={20} color={C.white} />
-            <Text style={s.alertText}>Saldo insuficiente: no recibirás solicitudes. Toca para recargar.</Text>
-          </TouchableOpacity>
-        ) : low ? (
-          <TouchableOpacity onPress={() => navigation.navigate('Recharge')} style={[s.alert, { backgroundColor: C.yellowWarn }]}>
-            <Ionicons name="warning" size={20} color={C.white} />
-            <Text style={s.alertText}>Saldo bajo: te quedan ~{tripsLeft} viajes. Recarga aquí.</Text>
-          </TouchableOpacity>
-        ) : null}
-        {d.freeCommissionToday ? (
-          <View style={[s.alert, { backgroundColor: C.purple }]}>
-            <Text style={s.alertText}>🎁 Hoy es tu día sin comisión</Text>
-          </View>
-        ) : null}
+        <View style={s.zoneTag}><Text style={{ fontSize: 12, fontWeight: '800', color: C.goldText }}>Zonas con más pedidos: Mercado · Terminal</Text></View>
       </SafeAreaView>
 
-      <View style={s.sheet}>
-        <TouchableOpacity activeOpacity={0.85} onPress={toggleAvailable} style={[s.toggle, { backgroundColor: d.available ? C.green : C.navy }]}>
-          <View>
-            <Text style={{ color: C.white, fontSize: 20, fontWeight: '900' }}>{d.available ? 'Disponible' : 'No disponible'}</Text>
-            <Text style={{ color: '#DDE6F7', marginTop: 2 }}>{d.available ? 'Buscando solicitudes cerca de ti…' : 'Activa para recibir viajes'}</Text>
+      <BottomPanel>
+        <TouchableOpacity activeOpacity={0.9} onPress={toggleAvailable} style={[s.toggle, { backgroundColor: d.available ? C.green : C.navy }]} accessibilityRole="switch">
+          <View style={s.switchTrack}>
+            <View style={[s.switchKnob, { backgroundColor: d.available ? C.green : C.muted, alignSelf: d.available ? 'flex-end' : 'flex-start' }]} />
           </View>
-          <Switch value={d.available} onValueChange={toggleAvailable} trackColor={{ true: '#9EE6AE', false: '#5E6B82' }} thumbColor={C.white} />
+          <View style={{ marginLeft: 14, flex: 1 }}>
+            <Text style={{ color: C.white, fontFamily: F.title, fontSize: 18 }}>{d.available ? 'Estás disponible' : 'No disponible'}</Text>
+            <Text style={{ color: C.white, fontSize: 13 }}>{d.available ? 'Recibiendo solicitudes cercanas' : 'Toca para empezar a recibir viajes'}</Text>
+          </View>
         </TouchableOpacity>
-        <Row style={{ marginTop: 14 }}>
-          <Stat label="Viajes hoy" value={today.trips} />
-          <Stat label="Ganado hoy" value={money(today.gross - today.commission)} color={C.green} />
-          <Stat label="Calificación" value={`★ ${d.profile.rating}`} color={C.gold} />
+        <Text style={{ fontFamily: F.title, fontSize: 16, color: C.navy, marginTop: 14 }}>Hoy</Text>
+        <Row style={{ marginTop: 8, marginHorizontal: -4 }}>
+          <Stat label="Viajes" value={today.trips} />
+          <Stat label="Ganado" value={money(today.earned)} />
+          <Stat label="Bonos" value={money(today.bonus)} green />
         </Row>
+        <Text style={{ fontSize: 12, color: C.sub, marginTop: 6 }}>Sin comisión: recibes tu tarifa completa en tu billetera al llegar al destino.</Text>
         <TouchableOpacity onPress={() => navigation.navigate('Bonuses')} style={s.bonusRow}>
-          <Text style={{ fontSize: 22 }}>🏆</Text>
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={{ fontWeight: '800', color: C.navy }}>Meta semanal: {d.weekTrips}/{nextBonus(cfg, d.weekTrips).trips} viajes → +{money(nextBonus(cfg, d.weekTrips).amount)}</Text>
-            <Progress value={d.weekTrips / nextBonus(cfg, d.weekTrips).trips} color={C.green} style={{ marginTop: 6 }} />
-          </View>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Text style={{ fontWeight: '800', fontSize: 14, color: C.purpleText }}>Bono del día: {money(nb.amount)} extra</Text>
+            <Text style={{ fontWeight: '800', fontSize: 14, color: C.purpleText }}>{today.trips}/{nb.trips}</Text>
+          </Row>
+          <Progress value={today.trips / nb.trips} style={{ marginTop: 8 }} />
         </TouchableOpacity>
-        {d.freeDayAvailable ? (
-          <Btn small title="🎁 Usar mi día sin comisión (premio 4.8+)" variant="ghost" style={{ marginTop: 10 }} onPress={activateFreeDay} />
-        ) : null}
-      </View>
+      </BottomPanel>
     </View>
   );
 }
 
-export const nextBonus = (cfg, n) => cfg.driverBonuses.find((b) => n < b.trips) || cfg.driverBonuses[cfg.driverBonuses.length - 1];
-
-const Stat = ({ label, value, color = C.navy }) => (
-  <View style={{ flex: 1, alignItems: 'center' }}>
-    <Text style={{ fontSize: 19, fontWeight: '900', color }}>{value}</Text>
-    <Text style={{ color: C.sub, fontSize: 12, marginTop: 2 }}>{label}</Text>
+const Stat = ({ label, value, green }) => (
+  <View style={{ flex: 1, marginHorizontal: 4, borderRadius: 14, backgroundColor: green ? C.greenSoft : C.bg, padding: 10 }}>
+    <Text style={{ fontSize: 12, color: green ? C.greenText : C.sub }}>{label}</Text>
+    <Text style={{ fontFamily: F.price, fontSize: 18, color: green ? C.greenText : C.navy }} numberOfLines={1}>{value}</Text>
   </View>
 );
 
-// ---------------- SOLICITUD ENTRANTE (global) ----------------
+// ---------------- C2 · SOLICITUD ENTRANTE (global) ----------------
+const RESPOND_SECS = 30;
 export function IncomingRequestModal() {
   const { state, acceptIncoming, rejectIncoming } = useApp();
   const req = state.driver.incoming;
-  const [left, setLeft] = useState(30);
-  const anim = useRef(new Animated.Value(1)).current;
+  const now = useNow(!!req, 500);
+  const left = req ? Math.max(0, RESPOND_SECS - Math.floor((now - req.createdAt) / 1000)) : RESPOND_SECS;
+  const expired = !!req && left <= 0;
 
   useEffect(() => {
-    if (!req) return;
-    setLeft(30);
-    anim.setValue(1);
-    Animated.timing(anim, { toValue: 0, duration: 30000, useNativeDriver: false }).start();
-    const iv = setInterval(() => setLeft((l) => l - 1), 1000);
-    return () => clearInterval(iv);
-  }, [req?.id]);
-
-  useEffect(() => {
-    if (req && left <= 0) rejectIncoming(true);
-  }, [left]);
+    if (expired) rejectIncoming(true);
+  }, [expired]);
 
   if (!req || state.session.role !== 'driver') return null;
   const cat = catById(req.category);
+  const r = 22;
+  const circ = 2 * Math.PI * r;
   return (
     <Modal visible transparent animationType="slide" onRequestClose={() => rejectIncoming()}>
-      <View style={{ flex: 1, backgroundColor: 'rgba(10,20,45,0.55)', justifyContent: 'flex-end' }}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(11,26,61,0.45)', justifyContent: 'flex-end', padding: 12 }}>
         <View style={s.reqCard}>
-          <Animated.View style={{ height: 6, borderRadius: 3, backgroundColor: left > 10 ? C.green : C.red, width: anim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }} />
-          <Row style={{ justifyContent: 'space-between', marginTop: 14 }}>
-            <Row>
-              <Text style={{ fontSize: 34 }}>{cat.emoji}</Text>
-              <View style={{ marginLeft: 10 }}>
-                <T.h2>Nueva solicitud</T.h2>
-                <T.sub>{cat.name} · {req.passenger} ★ {req.passengerRating}</T.sub>
-              </View>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Row style={{ backgroundColor: cat.soft, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999 }}>
+              <CatIcon id={req.category} size={18} />
+              <Text style={{ color: cat.text, fontWeight: '800', fontSize: 13, marginLeft: 6 }}>{cat.name} · Nueva solicitud</Text>
             </Row>
-            <View style={s.timer}><Text style={{ fontWeight: '900', color: C.navy, fontSize: 18 }}>{left}s</Text></View>
+            <View style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}>
+              <Svg width={52} height={52} style={{ position: 'absolute' }}>
+                <Circle cx={26} cy={26} r={r} stroke={C.mapBg} strokeWidth={4} fill="none" />
+                <Circle cx={26} cy={26} r={r} stroke={left > 10 ? C.gold : C.red} strokeWidth={4} fill="none" strokeDasharray={`${circ}`} strokeDashoffset={circ * (1 - left / RESPOND_SECS)} strokeLinecap="round" rotation={-90} origin="26,26" />
+              </Svg>
+              <Text style={{ fontFamily: F.title, fontSize: 16, color: C.navy }}>{left}</Text>
+            </View>
           </Row>
-
-          <View style={{ backgroundColor: C.greenSoft, borderRadius: 16, padding: 14, marginTop: 14, alignItems: 'center' }}>
-            <Text style={{ color: C.green, fontWeight: '700' }}>Ganas (tu tarifa)</Text>
-            <Text style={{ fontSize: 42, fontWeight: '900', color: C.green }}>{money(req.price.driverFare)}</Text>
-            <Text style={{ color: C.sub, fontSize: 13 }}>
-              Cobras {money(req.toPay)} en efectivo · Comisión {money(state.driver.freeCommissionToday ? 0 : req.price.commission)}
-            </Text>
-            {req.discount ? <Text style={{ color: C.purple, fontSize: 12, marginTop: 2, fontWeight: '700' }}>Pasajero usa cupón: te devolvemos {money(req.discount)} a tu saldo</Text> : null}
+          <View style={{ alignItems: 'center', marginTop: 8 }}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.sub }}>Ganas</Text>
+            <Text style={{ fontFamily: F.price, fontSize: 52, color: C.greenText, lineHeight: 60 }}>{money(req.price.driverFare)}</Text>
+            <Row style={{ marginTop: 2 }}>
+              <Ionicons name="lock-closed" size={13} color={C.sub} />
+              <Text style={{ fontSize: 13, color: C.sub, marginLeft: 4 }}>Ya pagado con billetera · se te paga al llegar</Text>
+            </Row>
+            {req.discount ? <Text style={{ color: C.purple, fontSize: 12, marginTop: 4, fontWeight: '800' }}>El pasajero usa un vale: tú igual recibes tu tarifa completa</Text> : null}
           </View>
-
-          <View style={{ marginTop: 14 }}>
-            <Row><View style={[s.dot, { backgroundColor: C.green }]} /><T.p style={{ marginLeft: 10, flex: 1 }}><Text style={{ fontWeight: '800' }}>Recojo:</Text> {req.origin.name} · a {req.pickupKm} km</T.p></Row>
-            <View style={{ width: 2, height: 12, backgroundColor: C.border, marginLeft: 5 }} />
-            <Row><View style={[s.dot, { backgroundColor: C.gold }]} /><T.p style={{ marginLeft: 10, flex: 1 }}><Text style={{ fontWeight: '800' }}>Destino:</Text> {req.dest.name} · {req.price.km} km</T.p></Row>
-            {req.cargo ? <T.sub style={{ marginTop: 8 }}>📦 {req.cargo.desc} (tamaño {req.cargo.size})</T.sub> : null}
+          <View style={{ backgroundColor: C.bg, borderRadius: 16, padding: 12, marginTop: 14 }}>
+            <RouteDots labels={false} origin={req.origin.name} originSub={`A ${Math.round(req.pickupKm * 1000)} m de ti · ${Math.max(1, Math.round(req.pickupKm * 3))} min`} dest={req.dest.name} destSub={`Viaje de ${req.price.km} km`} />
+            {req.cargo ? <T.sub style={{ marginTop: 8 }}>Carga: {req.cargo.desc} ({req.cargo.size})</T.sub> : null}
           </View>
-
-          <Row style={{ marginTop: 18 }}>
-            <Btn title="Rechazar" variant="ghost" style={{ flex: 1, marginRight: 10 }} onPress={() => rejectIncoming()} />
-            <Btn title="Aceptar" variant="success" style={{ flex: 1.6 }} icon="checkmark" onPress={acceptIncoming} />
+          <Row style={{ marginTop: 12 }}>
+            <Avatar name={req.passenger} size={30} />
+            <Text style={{ fontSize: 13, color: C.sub, marginLeft: 8 }}>{req.passenger} · ★ {req.passengerRating} · 1 persona</Text>
           </Row>
-          <T.sub style={{ textAlign: 'center', marginTop: 8 }}>Precio fijo: no se negocia.</T.sub>
+          <Row style={{ marginTop: 14 }}>
+            <Btn title="Rechazar" variant="ghost" style={{ width: 110, height: 60, marginRight: 10 }} textStyle={{ color: C.sub }} onPress={() => rejectIncoming()} />
+            <Btn title="Aceptar" variant="success" style={{ flex: 1, height: 60 }} textStyle={{ fontSize: 19 }} onPress={acceptIncoming} />
+          </Row>
         </View>
       </View>
     </Modal>
@@ -160,137 +145,165 @@ export function IncomingRequestModal() {
 }
 
 // ---------------- VIAJE DEL CONDUCTOR ----------------
+const D_STEPS = ['Llegué', 'Iniciar viaje', 'Finalizado'];
 export function DriverTrip({ navigation }) {
-  const { state, driverAdvance, driverCancel, confirmCash, finishDriverTrip, toast } = useApp();
+  const { state, wallets, driverAdvance, driverJump, driverCancel, finishDriverTrip, closeDriverTrip, toast } = useApp();
   const a = state.driver.active;
+  const cfg = state.config;
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [stars, setStars] = useState(5);
+  const [farMsg, setFarMsg] = useState(null);
+  const [spin] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (!a) navigation.goBack();
   }, [!!a]);
+  useEffect(() => {
+    if (a?.stage !== 'awaitingRelease') return;
+    const loop = Animated.loop(Animated.timing(spin, { toValue: 1, duration: 1200, useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [a?.stage]);
   if (!a) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 
   const target = a.stage === 'toPickup' || a.stage === 'atPickup' ? a.origin : a.dest;
-  const openNav = () =>
-    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}&travelmode=driving`);
+  const openNav = () => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}&travelmode=driving`);
 
-  // ----- Cobro -----
-  if (a.stage === 'charging' || a.stage === 'rating') {
-    const commission = a.stage === 'rating' ? a.commissionCharged : state.driver.freeCommissionToday ? 0 : a.price.commission;
+  // ----- Pago retenido → liberado -----
+  if (a.stage === 'awaitingRelease' || a.stage === 'released') {
+    const released = a.stage === 'released';
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-          {a.stage === 'charging' ? (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <SafeAreaView edges={['top']} style={{ backgroundColor: released ? C.green : C.navy }}>
+          <View style={{ padding: 20, paddingBottom: 24 }}>
+            <StepPills steps={D_STEPS} index={2} dark />
+            <Text style={{ color: C.white, fontWeight: '700', fontSize: 15, marginTop: 14 }}>Viaje finalizado · {a.dest.name}</Text>
+            <Text style={{ fontFamily: F.title, fontSize: 22, color: C.white, marginTop: 4 }}>{released ? '¡Pago recibido!' : 'Liberando tu pago…'}</Text>
+            <Text style={{ fontFamily: F.price, fontSize: 60, color: C.white, lineHeight: 68 }}>{released ? '+' : ''}{money(a.price.driverFare)}</Text>
+          </View>
+        </SafeAreaView>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }}>
+          <Card>
+            <ReceiptLine label="El pasajero pagó (retenido)" value={money(a.toPay)} />
+            {a.discount ? <ReceiptLine label="Vale del pasajero (lo asume Cusco Drive)" value={money(a.discount)} color={C.purple} /> : null}
+            <ReceiptLine label="Comisión" value="S/ 0.00" color={C.green} />
+            <View style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }} />
+            <ReceiptLine label="Tú recibes" value={money(a.price.driverFare)} bold color={C.greenText} />
+          </Card>
+          {!released ? (
+            <Card flat style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center' }}>
+              <Animated.View style={{ transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>
+                <Ionicons name="sync" size={24} color={C.navy} />
+              </Animated.View>
+              <T.sub style={{ marginLeft: 10, flex: 1 }}>
+                Esperando que {a.passenger} confirme la llegada. Si no reclama, se libera solo en {cfg.autoReleaseMin} min.
+              </T.sub>
+            </Card>
+          ) : (
             <>
-              <View style={{ alignItems: 'center', marginTop: 10 }}>
-                <Text style={{ fontSize: 60 }}>💵</Text>
-                <T.h2 style={{ marginTop: 6 }}>Cobra en efectivo</T.h2>
-              </View>
-              <Card style={{ marginTop: 14, alignItems: 'center', backgroundColor: C.goldSoft }}>
-                <T.sub>Cobra a {a.passenger}</T.sub>
-                <Text style={{ fontSize: 52, fontWeight: '900', color: C.navy }}>{money(a.toPay)}</Text>
+              <Card flat style={{ marginTop: 12, backgroundColor: C.greenSoft, borderColor: C.greenSoft }}>
+                <Text style={{ color: C.greenText, fontWeight: '800' }}>Depositado en tu billetera · {a.releasedHow}</Text>
+                <Text style={{ color: C.greenText, marginTop: 2 }}>Saldo: {money(wallets.conductor)} · puedes retirarlo hoy mismo.</Text>
+                {a.bonus ? <Text style={{ color: C.purple, fontWeight: '800', marginTop: 6 }}>🎉 Bono del día: +{money(a.bonus)}</Text> : null}
+              </Card>
+              <Card style={{ marginTop: 12, alignItems: 'center' }}>
+                <T.h3>Califica a {a.passenger}</T.h3>
+                <View style={{ marginTop: 10 }}><Stars value={stars} size={34} onChange={setStars} /></View>
+                <Btn title="Listo, seguir trabajando" style={{ marginTop: 16, alignSelf: 'stretch' }} onPress={() => { closeDriverTrip(); toast('¡Gracias! Sigues disponible.', 'success'); }} />
               </Card>
             </>
-          ) : (
-            <View style={{ alignItems: 'center', marginTop: 10 }}>
-              <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="checkmark" size={48} color={C.white} />
-              </View>
-              <T.h2 style={{ marginTop: 10 }}>¡Viaje completado!</T.h2>
-              <T.sub>Saldo actual: {money(state.driver.balance)}</T.sub>
-            </View>
-          )}
-          <Card style={{ marginTop: 12 }}>
-            <ReceiptLine label="Tu tarifa" value={money(a.price.driverFare)} color={C.green} />
-            <ReceiptLine label="Comisión Cusco Drive" value={commission ? `- ${money(commission)}` : 'S/ 0.00 🎁'} />
-            {a.discount ? <ReceiptLine label="Reembolso por cupón" value={`+ ${money(a.discount)}`} color={C.purple} /> : null}
-            <View style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }} />
-            <ReceiptLine label="Efectivo recibido" value={money(a.toPay)} />
-            <ReceiptLine label="Movimiento en tu saldo" value={`${round10(a.discount - commission) >= 0 ? '+' : '-'} ${money(Math.abs(a.discount - commission))}`} bold />
-          </Card>
-          {a.stage === 'charging' ? (
-            <>
-              <T.sub style={{ marginTop: 10, textAlign: 'center' }}>Al confirmar se descuenta la comisión de tu saldo prepago.</T.sub>
-              <Btn title="Confirmar cobro" icon="cash" variant="success" style={{ marginTop: 14 }} onPress={confirmCash} />
-            </>
-          ) : (
-            <Card style={{ marginTop: 12, alignItems: 'center' }}>
-              <T.h3>Califica a {a.passenger}</T.h3>
-              <View style={{ marginTop: 10 }}><Stars value={stars} size={34} onChange={setStars} /></View>
-              <Btn
-                title="Listo, seguir trabajando"
-                style={{ marginTop: 16, alignSelf: 'stretch' }}
-                onPress={() => { finishDriverTrip(); toast('¡Gracias! Sigues disponible.', 'success'); }}
-              />
-            </Card>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
   const stageInfo = {
-    toPickup: { title: 'Ve al punto de recojo', btn: 'Llegué', icon: 'flag', variant: 'secondary' },
-    atPickup: { title: `Esperando a ${a.passenger}`, btn: 'Iniciar viaje', icon: 'play', variant: 'primary' },
-    ongoing: { title: 'Viaje en curso', btn: 'Finalizar viaje', icon: 'stop-circle', variant: 'success' },
+    toPickup: { title: 'Ve al punto de recojo', btn: 'Llegué', variant: 'secondary', idx: 0 },
+    atPickup: { title: `Esperando a ${a.passenger}`, btn: 'Iniciar viaje', variant: 'primary', idx: 1 },
+    ongoing: { title: 'Viaje en curso', btn: 'Finalizar viaje', variant: 'success', idx: 2 },
   }[a.stage];
+  const distM = Math.round(Math.hypot((a.pos.latitude - a.dest.latitude) * 111000, (a.pos.longitude - a.dest.longitude) * 108000));
+
+  const onMain = () => {
+    if (a.stage !== 'ongoing') return driverAdvance();
+    if (distM > cfg.arrivalRadiusM) {
+      setFarMsg(distM);
+      return;
+    }
+    setConfirmEnd(true);
+  };
 
   return (
     <View style={{ flex: 1 }}>
       <Map
-        initialRegion={regionAround([state.driver.position, a.origin, a.dest], 1.6)}
-        route={a.stage === 'ongoing' ? [a.origin, a.dest] : [state.driver.position, a.origin]}
+        initialRegion={regionAround([a.legStart, a.origin, a.dest], 1.7)}
+        route={a.stage === 'ongoing' ? [a.pos, a.dest] : [a.pos, a.origin]}
         markers={[
-          { key: 'me', ...(a.stage === 'ongoing' ? a.origin : a.stage === 'atPickup' ? a.origin : state.driver.position), emoji: catById(a.category).emoji, color: C.white },
-          { key: 'o', latitude: a.origin.latitude, longitude: a.origin.longitude, color: C.green, label: a.stage === 'toPickup' ? 'Recojo' : undefined },
-          { key: 'd', latitude: a.dest.latitude, longitude: a.dest.longitude, color: C.gold, label: a.stage === 'ongoing' ? a.dest.name : undefined },
+          { key: 'o', latitude: a.origin.latitude, longitude: a.origin.longitude, kind: 'origin', label: a.stage === 'toPickup' ? 'Recojo' : undefined },
+          { key: 'd', latitude: a.dest.latitude, longitude: a.dest.longitude, kind: 'dest', label: a.stage === 'ongoing' ? a.dest.name : undefined },
+          { key: 'me', ...a.pos, kind: 'vehicle', category: a.category },
         ]}
       />
-      <SafeAreaView edges={['top']} style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
-        <Row style={{ padding: 12, justifyContent: 'space-between' }}>
-          <View style={s.pill}><Text style={{ fontWeight: '900', color: C.green }}>Cobras {money(a.toPay)}</Text></View>
-          <TouchableOpacity onPress={openNav} style={[s.pill, { backgroundColor: C.navy }]}>
+      <SafeAreaView edges={['top']} style={{ position: 'absolute', top: 0, left: 0, right: 0 }} pointerEvents="box-none">
+        <Row style={{ padding: 14, justifyContent: 'space-between' }}>
+          <View style={[s.pill, { paddingHorizontal: 14 }]}><Text style={{ fontWeight: '800', color: C.greenText }}>Ganas {money(a.price.driverFare)}</Text></View>
+          <TouchableOpacity onPress={openNav} style={[s.pill, { backgroundColor: C.navy, paddingHorizontal: 14 }]}>
             <Ionicons name="navigate" size={18} color={C.white} />
             <Text style={{ color: C.white, fontWeight: '800', marginLeft: 6 }}>Navegar</Text>
           </TouchableOpacity>
         </Row>
       </SafeAreaView>
-      <View style={s.sheet}>
-        <T.h2>{stageInfo.title}</T.h2>
-        <Card style={{ marginTop: 12, padding: 12, flexDirection: 'row', alignItems: 'center' }}>
-          <Avatar name={a.passenger} color={C.purple} />
+      <BottomPanel>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <StepPills steps={D_STEPS} index={stageInfo.idx} />
+          <TouchableOpacity onPress={driverJump} style={s.demo}><Text style={{ color: C.purple, fontWeight: '800', fontSize: 11 }}>Demo: GPS ⏩</Text></TouchableOpacity>
+        </Row>
+        <T.h2 style={{ marginTop: 10 }}>{stageInfo.title}</T.h2>
+        {a.stage === 'ongoing' ? <T.sub>A {distM} m del destino · debes estar a menos de {cfg.arrivalRadiusM} m para finalizar</T.sub> : null}
+        <Row style={{ marginTop: 12 }}>
+          <Avatar name={a.passenger} size={48} />
           <View style={{ flex: 1, marginLeft: 12 }}>
             <T.h3>{a.passenger}</T.h3>
             <T.sub numberOfLines={1}>{a.stage === 'ongoing' ? `Destino: ${a.dest.name}` : `Recojo: ${a.origin.name}`}</T.sub>
           </View>
           <TouchableOpacity onPress={() => Linking.openURL('tel:987000111')} style={s.callBtn}><Ionicons name="call" size={22} color={C.navy} /></TouchableOpacity>
-        </Card>
-        {a.cargo ? <T.sub style={{ marginTop: 8 }}>📦 {a.cargo.desc}</T.sub> : null}
-        <Btn
-          title={stageInfo.btn}
-          icon={stageInfo.icon}
-          variant={stageInfo.variant}
-          style={{ marginTop: 14 }}
-          onPress={() => (a.stage === 'ongoing' ? setConfirmEnd(true) : driverAdvance())}
-        />
+        </Row>
+        {a.cargo ? <T.sub style={{ marginTop: 8 }}>Carga: {a.cargo.desc}</T.sub> : null}
+        <Row style={{ marginTop: 10, backgroundColor: C.greenSoft, borderRadius: 12, padding: 10 }}>
+          <Ionicons name="lock-closed" size={16} color={C.greenText} />
+          <Text style={{ color: C.greenText, fontWeight: '700', fontSize: 13, marginLeft: 6, flex: 1 }}>{money(a.toPay)} retenidos por Cusco Drive. No cobres en efectivo.</Text>
+        </Row>
+        <Btn title={stageInfo.btn} variant={stageInfo.variant} style={{ marginTop: 12 }} onPress={onMain} />
         {a.stage !== 'ongoing' ? <Btn title="Cancelar viaje" variant="ghost" small style={{ marginTop: 8 }} onPress={() => setCancelOpen(true)} /> : null}
-      </View>
+      </BottomPanel>
       <Confirm
         visible={confirmEnd}
         title="¿Finalizar el viaje?"
-        text={`Confirma que llegaste a ${a.dest.name}. Luego cobrarás ${money(a.toPay)} en efectivo.`}
+        text={`Confirma que llegaste a ${a.dest.name}. Tu pago de ${money(a.price.driverFare)} se libera cuando el pasajero confirme o en ${cfg.autoReleaseMin} min si no reclama.`}
         confirmText="Finalizar"
         variant="success"
         onCancel={() => setConfirmEnd(false)}
-        onConfirm={() => { setConfirmEnd(false); driverAdvance(); }}
+        onConfirm={() => {
+          setConfirmEnd(false);
+          const r = finishDriverTrip();
+          if (!r.ok && r.distM) setFarMsg(r.distM);
+        }}
+      />
+      <Confirm
+        visible={!!farMsg}
+        title="Aún no llegas al destino"
+        text={`Tu GPS está a ${farMsg} m de ${a.dest.name}. Para proteger al pasajero, solo puedes finalizar a menos de ${cfg.arrivalRadiusM} m.`}
+        confirmText="Entendido"
+        onCancel={() => setFarMsg(null)}
+        onConfirm={() => setFarMsg(null)}
       />
       <Sheet visible={cancelOpen} onClose={() => setCancelOpen(false)} title="Motivo de cancelación">
-        <T.sub style={{ marginBottom: 6 }}>No se cobra comisión en viajes cancelados.</T.sub>
+        <T.sub style={{ marginBottom: 6 }}>Se devolverá todo el pago al pasajero. Las cancelaciones afectan tus bonos.</T.sub>
         {DRIVER_CANCEL_REASONS.map((r) => (
           <TouchableOpacity key={r} onPress={() => { setCancelOpen(false); driverCancel(r); }} style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border }}>
-            <Text style={{ fontSize: 16, color: C.text }}>{r}</Text>
+            <Text style={{ fontSize: 16 }}>{r}</Text>
           </TouchableOpacity>
         ))}
       </Sheet>
@@ -298,114 +311,107 @@ export function DriverTrip({ navigation }) {
   );
 }
 
-// ---------------- SALDO ----------------
-export function WalletScreen({ navigation }) {
-  const { state } = useApp();
-  const d = state.driver;
+// ---------------- C4 · BILLETERA DEL CONDUCTOR ----------------
+export function DriverWallet({ navigation }) {
+  const { state, wallets } = useApp();
   const cfg = state.config;
-  const color = d.balance < cfg.minDriverBalance ? C.red : d.balance < cfg.lowBalanceAlert ? C.yellowWarn : C.green;
-  const icon = { commission: 'remove-circle', recharge: 'add-circle', bonus: 'gift', refund: 'return-down-back', free: 'happy' };
+  const d = state.driver;
+  const bal = wallets.conductor;
+  const free = Math.max(0, cfg.freeWithdrawalsPerMonth - d.monthWithdrawals);
   return (
-    <Screen>
-      <T.h1>Mi saldo</T.h1>
-      <Card style={{ marginTop: 14, backgroundColor: C.navy }}>
-        <Text style={{ color: '#C9D3EA' }}>Saldo prepago</Text>
-        <Text style={{ color: C.white, fontSize: 44, fontWeight: '900' }}>{money(d.balance)}</Text>
-        <Row style={{ marginTop: 4 }}>
-          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
-          <Text style={{ color: '#DDE6F7', marginLeft: 6 }}>
-            {d.balance < cfg.minDriverBalance ? 'Sin saldo: no recibes solicitudes' : d.balance < cfg.lowBalanceAlert ? 'Saldo bajo' : 'Saldo saludable'}
-          </Text>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <NavyHeader title="Mi billetera" color={C.green}>
+        <Text style={{ color: '#DDF3E2', marginTop: 14 }}>Disponible para retirar</Text>
+        <Text style={{ fontFamily: F.price, fontSize: 44, color: C.white, lineHeight: 52 }}>{money(bal)}</Text>
+        <Text style={{ color: '#DDF3E2', fontSize: 13 }}>{free > 0 ? `Te quedan ${free} retiros gratis este mes` : `Costo por retiro: ${money(cfg.withdrawFee)}`}</Text>
+      </NavyHeader>
+      <Screen edges={[]} contentStyle={{ paddingTop: 16 }}>
+        <Btn title="Retirar a Yape / Plin / banco" icon="arrow-up-circle" disabled={bal < cfg.minWithdraw} onPress={() => navigation.navigate('Withdraw')} />
+        <Row style={{ marginTop: 12, marginHorizontal: -4 }}>
+          <View style={[s.mini, { backgroundColor: C.greenSoft }]}><Text style={{ color: C.greenText, fontSize: 12, fontWeight: '800' }}>Sin comisión</Text><Text style={{ color: C.greenText, fontSize: 12 }}>Recibes tu tarifa completa</Text></View>
+          <View style={[s.mini, { backgroundColor: C.navySoft }]}><Text style={{ color: C.navy, fontSize: 12, fontWeight: '800' }}>Retiro el mismo día</Text><Text style={{ color: C.navy, fontSize: 12 }}>A tu {d.profile.payout.method}</Text></View>
         </Row>
-        <Btn title="Recargar saldo" icon="add" style={{ marginTop: 16 }} onPress={() => navigation.navigate('Recharge')} />
-      </Card>
-      <Card style={{ marginTop: 12, backgroundColor: C.goldSoft }}>
-        <T.sub>
-          ¿Cómo funciona? El pasajero te paga todo en efectivo. Al finalizar cada viaje descontamos la comisión de este saldo. Si un pasajero usa cupón, te devolvemos la diferencia: tú siempre cobras tu tarifa completa.
-        </T.sub>
-      </Card>
-      <T.h2 style={{ marginTop: 20 }}>Movimientos</T.h2>
-      <Card style={{ marginTop: 10, paddingVertical: 4 }}>
-        {d.movements.map((m) => (
-          <ListItem
-            key={m.id}
-            icon={icon[m.type] || 'ellipse'}
-            iconColor={m.amount > 0 ? C.green : m.amount < 0 ? C.red : C.purple}
-            title={m.label}
-            sub={fmtDate(m.date)}
-            right={<Text style={{ fontWeight: '900', color: m.amount > 0 ? C.green : m.amount < 0 ? C.red : C.sub }}>{m.amount > 0 ? '+' : m.amount < 0 ? '-' : ''}{money(Math.abs(m.amount))}</Text>}
-          />
-        ))}
-      </Card>
-    </Screen>
+        <Card flat style={{ marginTop: 12 }}>
+          <T.h3>¿Cómo funciona?</T.h3>
+          <T.sub style={{ marginTop: 4 }}>El pasajero paga por adelantado con su billetera. Cusco Drive retiene el pago y, al llegar al destino, deposita tu tarifa aquí. No necesitas recargar saldo ni cobrar efectivo.</T.sub>
+        </Card>
+        <T.h2 style={{ marginTop: 20 }}>Movimientos</T.h2>
+        <Movements list={forAccount(state.ledger, 'conductor')} />
+      </Screen>
+    </View>
   );
 }
 
-export function RechargeScreen({ navigation }) {
-  const { recharge, toast } = useApp();
-  const [amount, setAmount] = useState(20);
-  const [method, setMethod] = useState('Yape');
+export function WithdrawScreen({ navigation }) {
+  const { state, wallets, withdraw } = useApp();
+  const cfg = state.config;
+  const d = state.driver;
+  const bal = wallets.conductor;
+  const [amount, setAmount] = useState(String(Math.floor(bal)));
+  const [method, setMethod] = useState(d.profile.payout.method);
+  const [account, setAccount] = useState(d.profile.payout.account);
   const [step, setStep] = useState(1);
-  const methods = [
-    { id: 'Yape', color: '#742284', icon: 'phone-portrait' },
-    { id: 'Plin', color: '#00B2A9', icon: 'phone-portrait' },
-    { id: 'Agente', color: C.navy, icon: 'storefront' },
-  ];
-  const pay = () => {
+  const [res, setRes] = useState(null);
+  const [error, setError] = useState('');
+  const fee = d.monthWithdrawals < cfg.freeWithdrawalsPerMonth ? 0 : cfg.withdrawFee;
+  const val = Number(String(amount).replace(',', '.')) || 0;
+
+  const go = () => {
+    setError('');
     setStep(2);
     setTimeout(() => {
-      recharge(amount, method);
+      const r = withdraw(round2(val), method, account);
+      if (!r.ok) { setError(r.error); setStep(1); return; }
+      setRes(r);
       setStep(3);
-    }, 2200);
+    }, 1500);
   };
+
   if (step === 3) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: C.white, padding: 24, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ fontSize: 80 }}>✅</Text>
-        <T.h1 style={{ marginTop: 10 }}>¡Recarga exitosa!</T.h1>
-        <T.p style={{ color: C.sub, marginTop: 6 }}>Se sumaron {money(amount)} a tu saldo por {method}.</T.p>
+        <Ionicons name="checkmark-circle" size={88} color={C.green} />
+        <T.h1 style={{ marginTop: 10 }}>¡Retiro enviado!</T.h1>
+        <T.p style={{ color: C.sub, textAlign: 'center', marginTop: 6 }}>Enviamos {money(res.net)} a tu {method} ***{account.slice(-3)}.{res.fee ? ` Costo ${money(res.fee)}.` : ' Sin costo.'}</T.p>
         <Btn title="Volver" style={{ alignSelf: 'stretch', marginTop: 24 }} onPress={() => navigation.goBack()} />
       </SafeAreaView>
     );
   }
   return (
     <Screen>
-      <Header title="Recargar saldo" onBack={() => navigation.goBack()} />
-      <T.h3>Monto</T.h3>
-      <Row style={{ flexWrap: 'wrap', marginTop: 8 }}>
-        {[10, 20, 50, 100].map((v) => (
-          <TouchableOpacity key={v} onPress={() => setAmount(v)} style={[s.amount, amount === v && { borderColor: C.gold, backgroundColor: C.goldSoft }]}>
-            <Text style={{ fontSize: 22, fontWeight: '900', color: C.navy }}>S/ {v}</Text>
-            <Text style={{ color: C.sub, fontSize: 12 }}>~{Math.floor(v / 0.4)} viajes</Text>
-          </TouchableOpacity>
-        ))}
+      <Header title="Retirar dinero" onBack={() => navigation.goBack()} />
+      <Card flat style={{ alignItems: 'center' }}>
+        <T.sub>Disponible</T.sub>
+        <Text style={{ fontFamily: F.price, fontSize: 32, color: C.greenText }}>{money(bal)}</Text>
+      </Card>
+      <T.h3 style={{ marginTop: 18 }}>Monto</T.h3>
+      <Row style={{ marginTop: 8 }}>
+        <Text style={{ fontFamily: F.title, fontSize: 22, color: C.navy, marginRight: 8 }}>S/</Text>
+        <Input value={amount} onChangeText={setAmount} keyboardType="decimal-pad" style={{ flex: 1, fontSize: 22 }} />
+        <Btn small title="Todo" variant="light" style={{ marginLeft: 8 }} onPress={() => setAmount(String(bal))} />
       </Row>
-      <T.h3 style={{ marginTop: 18 }}>Método</T.h3>
-      {methods.map((m) => (
-        <TouchableOpacity key={m.id} onPress={() => setMethod(m.id)} style={[s.method, method === m.id && { borderColor: m.color }]}>
-          <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: m.color, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name={m.icon} size={22} color={C.white} />
-          </View>
-          <Text style={{ flex: 1, marginLeft: 12, fontSize: 17, fontWeight: '800', color: C.text }}>{m.id}</Text>
-          <Ionicons name={method === m.id ? 'radio-button-on' : 'radio-button-off'} size={22} color={method === m.id ? m.color : C.muted} />
-        </TouchableOpacity>
-      ))}
-      {method !== 'Agente' ? (
-        <Card style={{ marginTop: 14, alignItems: 'center' }}>
-          <T.sub>Yapea o plinea al número de Cusco Drive</T.sub>
-          <Text style={{ fontSize: 26, fontWeight: '900', color: C.navy, letterSpacing: 1, marginTop: 4 }}>984 000 123</Text>
-          <T.sub>A nombre de: Cusco Drive S.A.C. · Mensaje: tu placa</T.sub>
-        </Card>
-      ) : (
-        <Card style={{ marginTop: 14 }}>
-          <T.sub>Acércate a un agente autorizado (bodegas del Mercado Central y paraderos asociados) con tu placa y el monto.</T.sub>
-        </Card>
-      )}
-      <Btn title={step === 2 ? 'Verificando pago…' : `Ya pagué ${money(amount)}`} loading={step === 2} style={{ marginTop: 18 }} onPress={pay} />
-      <T.sub style={{ textAlign: 'center', marginTop: 8 }}>Demo: el pago se confirma automáticamente.</T.sub>
+      <T.h3 style={{ marginTop: 18 }}>Enviar a</T.h3>
+      <Row style={{ marginTop: 8 }}>
+        {['Yape', 'Plin', 'Banco'].map((m) => <Chip2 key={m} label={m} on={method === m} onPress={() => setMethod(m)} />)}
+      </Row>
+      <Input value={account} onChangeText={setAccount} keyboardType="number-pad" placeholder={method === 'Banco' ? 'N.º de cuenta / CCI' : 'Celular'} style={{ marginTop: 10 }} />
+      <Card flat style={{ marginTop: 14 }}>
+        <ReceiptLine label="Monto" value={money(val)} />
+        <ReceiptLine label="Costo de retiro" value={fee ? money(fee) : 'Gratis'} color={fee ? C.text : C.green} />
+        <ReceiptLine label="Recibes" value={money(Math.max(0, val - fee))} bold />
+      </Card>
+      {error ? <Text style={{ color: C.red, marginTop: 10, fontWeight: '700' }}>{error}</Text> : null}
+      <Btn title={step === 2 ? 'Enviando…' : `Retirar ${money(val)}`} loading={step === 2} disabled={val < cfg.minWithdraw || val > bal || account.length < 6} style={{ marginTop: 18 }} onPress={go} />
+      <T.sub style={{ textAlign: 'center', marginTop: 8 }}>Mínimo {money(cfg.minWithdraw)} · llega el mismo día.</T.sub>
     </Screen>
   );
 }
+
+const Chip2 = ({ label, on, onPress }) => (
+  <TouchableOpacity onPress={onPress} style={{ flex: 1, marginRight: 8, height: 44, borderRadius: 12, borderWidth: 2, borderColor: on ? C.green : C.border, backgroundColor: on ? C.greenSoft : C.white, alignItems: 'center', justifyContent: 'center' }}>
+    <Text style={{ fontWeight: '800', color: on ? C.greenText : C.text }}>{label}</Text>
+  </TouchableOpacity>
+);
 
 // ---------------- GANANCIAS ----------------
 export function EarningsScreen() {
@@ -418,8 +424,8 @@ export function EarningsScreen() {
     d.setDate(d.getDate() - (6 - i));
     return i === 6 ? 'Hoy' : days[(d.getDay() + 6) % 7];
   });
-  const sum = tab === 'hoy' ? w[6] : w.reduce((a, e) => ({ trips: a.trips + e.trips, gross: a.gross + e.gross, commission: a.commission + e.commission }), { trips: 0, gross: 0, commission: 0 });
-  const max = Math.max(...w.map((e) => e.gross - e.commission));
+  const sum = tab === 'hoy' ? w[6] : w.reduce((a, e) => ({ trips: a.trips + e.trips, earned: a.earned + e.earned, bonus: a.bonus + e.bonus }), { trips: 0, earned: 0, bonus: 0 });
+  const max = Math.max(...w.map((e) => e.earned + e.bonus));
   return (
     <Screen>
       <T.h1>Ganancias</T.h1>
@@ -431,76 +437,96 @@ export function EarningsScreen() {
         ))}
       </Row>
       <Card style={{ marginTop: 14, alignItems: 'center' }}>
-        <T.sub>Ganancia neta</T.sub>
-        <Text style={{ fontSize: 44, fontWeight: '900', color: C.green }}>{money(sum.gross - sum.commission)}</Text>
+        <T.sub>Ganaste (sin comisiones)</T.sub>
+        <Text style={{ fontFamily: F.price, fontSize: 44, color: C.green }}>{money(sum.earned + sum.bonus)}</Text>
         <Row style={{ marginTop: 10 }}>
           <View style={{ flex: 1, alignItems: 'center' }}><T.h3>{sum.trips}</T.h3><T.sub>Viajes</T.sub></View>
-          <View style={{ flex: 1, alignItems: 'center' }}><T.h3>{money(sum.gross)}</T.h3><T.sub>Cobrado</T.sub></View>
-          <View style={{ flex: 1, alignItems: 'center' }}><T.h3 style={{ color: C.red }}>{money(sum.commission)}</T.h3><T.sub>Comisión</T.sub></View>
+          <View style={{ flex: 1, alignItems: 'center' }}><T.h3>{money(sum.earned)}</T.h3><T.sub>Tarifas</T.sub></View>
+          <View style={{ flex: 1, alignItems: 'center' }}><T.h3 style={{ color: C.purple }}>{money(sum.bonus)}</T.h3><T.sub>Bonos</T.sub></View>
         </Row>
       </Card>
       <Card style={{ marginTop: 14 }}>
-        <T.h3>Neto por día</T.h3>
+        <T.h3>Por día</T.h3>
         <Row style={{ alignItems: 'flex-end', height: 150, marginTop: 14, justifyContent: 'space-between' }}>
           {w.map((e, i) => {
-            const net = e.gross - e.commission;
+            const v = e.earned + e.bonus;
             return (
               <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                <Text style={{ fontSize: 10, color: C.sub, marginBottom: 4 }}>{Math.round(net)}</Text>
-                <View style={{ width: 22, height: Math.max(6, (net / max) * 110), borderRadius: 6, backgroundColor: i === 6 ? C.gold : C.navy }} />
+                <Text style={{ fontSize: 10, color: C.sub, marginBottom: 4 }}>{Math.round(v)}</Text>
+                <View style={{ width: 22, height: Math.max(6, (v / max) * 110), borderRadius: 6, backgroundColor: i === 6 ? C.gold : C.navy }} />
                 <Text style={{ fontSize: 12, marginTop: 4, color: C.sub, fontWeight: i === 6 ? '800' : '500' }}>{labels[i]}</Text>
               </View>
             );
           })}
         </Row>
       </Card>
-      <T.sub style={{ marginTop: 12, textAlign: 'center' }}>Comisión promedio: {sum.gross ? ((sum.commission / sum.gross) * 100).toFixed(1) : 0}% de lo cobrado.</T.sub>
+      <T.sub style={{ marginTop: 12, textAlign: 'center' }}>Cusco Drive no te cobra comisión: el margen ya va incluido en lo que paga el pasajero.</T.sub>
     </Screen>
   );
 }
 
-// ---------------- BONOS ----------------
+// ---------------- C5 · BONOS ----------------
 export function BonusesScreen() {
   const { state } = useApp();
   const d = state.driver;
   const cfg = state.config;
+  const today = d.earningsWeek[6].trips;
+  const cancelPct = d.accepted ? (d.cancelled / d.accepted) * 100 : 0;
+  const eligible = d.profile.rating >= cfg.bonusMinRating && cancelPct <= cfg.bonusMaxCancelPct;
   return (
-    <Screen>
-      <T.h1>Bonos y premios</T.h1>
-      <T.h2 style={{ marginTop: 18 }}>Metas de la semana</T.h2>
-      {cfg.driverBonuses.map((b) => {
-        const done = d.weekTrips >= b.trips;
-        return (
-          <Card key={b.trips} style={{ marginTop: 10 }}>
-            <Row style={{ justifyContent: 'space-between' }}>
-              <T.h3>{b.trips} viajes → {money(b.amount)} de saldo</T.h3>
-              {done ? <Badge text="Logrado" color={C.green} icon="checkmark" /> : <Text style={{ fontWeight: '800', color: C.navy }}>{d.weekTrips}/{b.trips}</Text>}
-            </Row>
-            <Progress value={d.weekTrips / b.trips} color={done ? C.green : C.gold} style={{ marginTop: 10 }} />
-            {!done ? <T.sub style={{ marginTop: 6 }}>Te faltan {b.trips - d.weekTrips} viajes</T.sub> : null}
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <NavyHeader title="Bonos y premios">
+        <Text style={{ color: C.navyText, marginTop: 12 }}>Hoy llevas</Text>
+        <Text style={{ fontFamily: F.price, fontSize: 40, color: C.gold, lineHeight: 48 }}>{today} viajes</Text>
+        <Text style={{ color: C.navyText, fontSize: 13 }}>Los bonos del día se depositan al instante en tu billetera</Text>
+      </NavyHeader>
+      <Screen edges={[]} contentStyle={{ paddingTop: 16 }}>
+        {!eligible ? (
+          <Card flat style={{ backgroundColor: C.redSoft, borderColor: C.redSoft, marginBottom: 10 }}>
+            <Text style={{ color: C.redText, fontWeight: '800' }}>Bonos pausados: necesitas ★ {cfg.bonusMinRating}+ y menos de {cfg.bonusMaxCancelPct}% de cancelaciones.</Text>
           </Card>
-        );
-      })}
-      <T.h2 style={{ marginTop: 22 }}>Insignias</T.h2>
-      <Row style={{ marginTop: 10 }}>
-        <BadgeCard emoji="🛡️" title="Verificado" on={d.profile.badges?.includes('verificado')} />
-        <BadgeCard emoji="⭐" title="Conductor Estrella" on={d.profile.badges?.includes('estrella')} />
-        <BadgeCard emoji="🌙" title="Nocturno" on={false} />
-      </Row>
-      <T.h2 style={{ marginTop: 22 }}>Otros premios</T.h2>
-      <Card style={{ marginTop: 10, paddingVertical: 4 }}>
-        <ListItem emoji="🎁" iconColor={C.purple} title="Día sin comisión" sub={d.freeCommissionToday ? 'Activo hoy' : d.freeDayAvailable ? 'Disponible (calificación 4.8+)' : 'Usado este mes'} />
-        <ListItem emoji="🏆" iconColor={C.gold} title="Top 3 del mes" sub="Kit de mantenimiento + S/ 30 de saldo · auspicia Lubricentro Valle" />
-        <ListItem emoji="🤝" iconColor={C.green} title="Trae un conductor" sub="S/ 10 de saldo cuando sea aprobado" />
-        <ListItem emoji="🌧️" iconColor={C.navy} title="Zonas y horas difíciles" sub="Bono en madrugada, lluvia y comunidades lejanas" />
-      </Card>
-    </Screen>
+        ) : null}
+        <T.h2>Metas del día</T.h2>
+        {cfg.driverDailyBonuses.map((b) => {
+          const done = d.bonusesPaidToday.includes(b.trips) || today >= b.trips;
+          return (
+            <Card key={b.trips} style={{ marginTop: 10 }}>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <Text style={{ fontWeight: '800', fontSize: 15 }}>{b.trips} viajes → {money(b.amount)} extra</Text>
+                {done ? <Badge text="Logrado" tone="green" icon="checkmark" /> : <Text style={{ fontWeight: '800', color: C.navy }}>{today}/{b.trips}</Text>}
+              </Row>
+              <Progress value={today / b.trips} color={done ? C.green : C.gold} track={C.mapBg} style={{ marginTop: 10 }} />
+              {!done ? <T.sub style={{ marginTop: 6 }}>Te faltan {b.trips - today} viajes</T.sub> : null}
+            </Card>
+          );
+        })}
+        <Card style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: C.purpleSoft }}>
+          <Ionicons name="star" size={28} color={C.purple} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={{ fontWeight: '800', color: C.purpleText }}>Tu calificación: ★ {d.profile.rating}</Text>
+            <T.sub>Cancelaciones: {cancelPct.toFixed(1)}% · requisito para bonos</T.sub>
+          </View>
+        </Card>
+        <T.h2 style={{ marginTop: 22 }}>Insignias</T.h2>
+        <Row style={{ marginTop: 10 }}>
+          <BadgeCard icon="shield-checkmark" title="Verificado" on={d.profile.badges?.includes('verificado')} />
+          <BadgeCard icon="star" title="Conductor Estrella" on={d.profile.badges?.includes('estrella')} />
+          <BadgeCard icon="trophy" title="Top 3 del mes" on={false} />
+        </Row>
+        <T.h2 style={{ marginTop: 22 }}>Otros premios</T.h2>
+        <Card style={{ marginTop: 10, paddingVertical: 4 }}>
+          <ListItem icon="trophy" iconColor={C.gold} title="Top 3 del mes" sub="Kit de mantenimiento + S/ 30 · auspicia Lubricentro Valle" />
+          <ListItem icon="people" iconColor={C.green} title="Trae a un conductor" sub="S/ 10 en tu billetera cuando sea aprobado" />
+          <ListItem icon="rainy" iconColor={C.navy} title="Zonas y horas difíciles" sub="Bono en madrugada, lluvia y comunidades lejanas" />
+        </Card>
+      </Screen>
+    </View>
   );
 }
-const BadgeCard = ({ emoji, title, on }) => (
+const BadgeCard = ({ icon, title, on }) => (
   <View style={{ flex: 1, alignItems: 'center', backgroundColor: C.white, borderRadius: 16, padding: 12, marginHorizontal: 4, opacity: on ? 1 : 0.4, ...shadow }}>
-    <Text style={{ fontSize: 34 }}>{emoji}</Text>
-    <Text style={{ fontWeight: '700', color: C.navy, textAlign: 'center', marginTop: 4, fontSize: 12 }}>{title}</Text>
+    <Ionicons name={icon} size={30} color={C.gold} />
+    <Text style={{ fontWeight: '800', color: C.navy, textAlign: 'center', marginTop: 4, fontSize: 12 }}>{title}</Text>
   </View>
 );
 
@@ -513,20 +539,21 @@ export function DriverProfile({ navigation }) {
   return (
     <Screen>
       <Card style={{ alignItems: 'center', paddingVertical: 22 }}>
-        <Avatar name={p.name} size={84} color={C.green} />
+        <Avatar name={p.name} size={84} bg={C.greenSoft} color={C.greenText} />
         <T.h2 style={{ marginTop: 10 }}>{p.name}</T.h2>
-        <Row style={{ marginTop: 4 }}><Stars value={p.rating} /><Text style={{ marginLeft: 6, fontWeight: '800', color: C.text }}>{p.rating}</Text></Row>
-        <T.sub style={{ marginTop: 4 }}>{p.totalTrips} viajes · {p.association}</T.sub>
+        <Row style={{ marginTop: 4 }}><Stars value={p.rating} /><Text style={{ marginLeft: 6, fontWeight: '800' }}>{p.rating}</Text></Row>
+        <T.sub style={{ marginTop: 4, textAlign: 'center' }}>{p.totalTrips} viajes · {p.association}</T.sub>
         <Row style={{ marginTop: 10 }}>
-          <Badge text="Conductor verificado" color={C.green} icon="shield-checkmark" />
-          {p.badges?.includes('estrella') ? <><View style={{ width: 6 }} /><Badge text="Estrella" color={C.gold} icon="star" /></> : null}
+          <Badge text="✓ Conductor verificado" tone="green" />
+          {p.badges?.includes('estrella') ? <Badge text="★ Conductor Estrella" tone="gold" style={{ marginLeft: 6 }} /> : null}
         </Row>
       </Card>
-      <T.sub style={{ marginTop: 20, fontWeight: '800' }}>VEHÍCULO</T.sub>
+      <T.label style={{ marginTop: 20 }}>VEHÍCULO</T.label>
       <Card style={{ marginTop: 8, paddingVertical: 4 }}>
-        <ListItem emoji={catById(p.category).emoji} title={p.vehicle} sub={`Placa ${p.plate} · ${catById(p.category).name}`} />
+        <ListItem node={<CatIcon id={p.category} size={24} />} iconBg={catById(p.category).soft} title={p.vehicle} sub={`Placa ${p.plate} · ${catById(p.category).name}`} />
+        <ListItem icon="wallet" iconColor={C.green} title="Cuenta para retiros" sub={`${p.payout.method} · ${p.payout.account}`} />
       </Card>
-      <T.sub style={{ marginTop: 20, fontWeight: '800' }}>DOCUMENTOS Y VENCIMIENTOS</T.sub>
+      <T.label style={{ marginTop: 20 }}>DOCUMENTOS Y VENCIMIENTOS</T.label>
       <Card style={{ marginTop: 8, paddingVertical: 4 }}>
         {p.documents.map((doc) => {
           const left = days(doc.expires);
@@ -535,40 +562,33 @@ export function DriverProfile({ navigation }) {
             <ListItem
               key={doc.id}
               icon="document-text"
-              iconColor={warn ? C.yellowWarn : C.green}
+              iconColor={warn ? C.goldText : C.green}
               title={doc.name}
               sub={doc.expires ? `Vence en ${left} días (${new Date(doc.expires).toLocaleDateString('es-PE')})` : 'Vigente'}
-              right={warn ? <Badge text="Renovar" color={C.yellowWarn} /> : <Ionicons name="checkmark-circle" size={20} color={C.green} />}
+              right={warn ? <Badge text="Renovar" tone="gold" /> : <Ionicons name="checkmark-circle" size={20} color={C.green} />}
             />
           );
         })}
       </Card>
       <Card style={{ marginTop: 20, paddingVertical: 4 }}>
-        <ListItem
-          icon="swap-horizontal"
-          iconColor={C.gold}
-          title="Cambiar a modo pasajero"
-          onPress={() => { setRole('passenger'); navigation.reset({ index: 0, routes: [{ name: 'PassengerTabs' }] }); }}
-        />
+        <ListItem icon="swap-horizontal" iconColor={C.gold} title="Cambiar a modo pasajero" onPress={() => { setRole('passenger'); navigation.reset({ index: 0, routes: [{ name: 'PassengerTabs' }] }); }} />
         <ListItem icon="settings" iconColor={C.sub} title="Panel admin (demo)" onPress={() => navigation.navigate('Admin')} />
       </Card>
-      <Btn title="Cerrar sesión" variant="ghost" icon="log-out" style={{ marginTop: 20 }} onPress={() => { logout(); navigation.reset({ index: 0, routes: [{ name: 'RoleSelect' }] }); }} />
-      <AndeanBorder style={{ marginTop: 24 }} height={8} />
+      <Btn title="Cerrar sesión" variant="ghost" icon="log-out" style={{ marginTop: 20 }} onPress={() => { logout(); navigation.reset({ index: 0, routes: [{ name: 'Login' }] }); }} />
+      <AndeanBorder style={{ marginTop: 24, borderRadius: 4 }} />
     </Screen>
   );
 }
 
 const s = StyleSheet.create({
-  pill: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 30, ...shadow },
-  alert: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 14, marginBottom: 8, padding: 12, borderRadius: 14, ...shadow },
-  alertText: { color: C.white, fontWeight: '800', marginLeft: 8, flex: 1 },
-  sheet: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: C.white, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, paddingBottom: 20, ...shadow },
-  toggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 18 },
-  bonusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14, backgroundColor: C.greenSoft, padding: 12, borderRadius: 14 },
-  reqCard: { backgroundColor: C.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 34 },
-  timer: { width: 56, height: 56, borderRadius: 28, borderWidth: 3, borderColor: C.gold, alignItems: 'center', justifyContent: 'center' },
-  dot: { width: 12, height: 12, borderRadius: 6 },
+  pill: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, height: 48, paddingLeft: 6, paddingRight: 14, borderRadius: 999, ...shadow },
+  zoneTag: { marginLeft: 16, marginTop: 10, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.95)' },
+  toggle: { flexDirection: 'row', alignItems: 'center', height: 72, borderRadius: 20, paddingHorizontal: 16, marginTop: 4 },
+  switchTrack: { width: 60, height: 34, borderRadius: 17, backgroundColor: C.white, padding: 4, justifyContent: 'center' },
+  switchKnob: { width: 26, height: 26, borderRadius: 13 },
+  bonusRow: { marginTop: 12, backgroundColor: C.purpleSoft, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16 },
+  reqCard: { backgroundColor: C.white, borderRadius: 26, padding: 18, ...shadow, shadowOpacity: 0.3 },
   callBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.goldSoft, alignItems: 'center', justifyContent: 'center' },
-  amount: { width: '47%', marginRight: '3%', marginBottom: 10, padding: 16, borderRadius: 16, borderWidth: 2, borderColor: C.border, backgroundColor: C.white, alignItems: 'center' },
-  method: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, borderWidth: 2, borderColor: C.border, backgroundColor: C.white, marginTop: 10 },
+  demo: { backgroundColor: C.purpleSoft, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10 },
+  mini: { flex: 1, marginHorizontal: 4, borderRadius: 12, padding: 10 },
 });

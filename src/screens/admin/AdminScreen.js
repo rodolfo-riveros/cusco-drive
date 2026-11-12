@@ -1,145 +1,207 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Switch, TextInput } from 'react-native';
+import { View, TouchableOpacity, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, money } from '../../theme';
-import { Screen, Card, Row, T, Header, Badge, Btn, Progress, ListItem } from '../../components/ui';
+import { C, F, money, signed } from '../../theme';
+import { Screen, Card, Row, T, Text, Header, Badge, Btn, Progress, CatIcon } from '../../components/ui';
 import { CATEGORIES, catById, placeById } from '../../data/mock';
-import { calcPrice, fmtDate } from '../../logic/pricing';
+import { calcPrice, fmtDate, round2 } from '../../logic/pricing';
+import { ACCOUNTS, TYPE_LABEL } from '../../logic/ledger';
 import { useApp } from '../../store/AppStore';
 
-const Stepper = ({ value, onChange, step = 0.1, suffix = '', prefix = '' }) => (
+const Stepper = ({ value, onChange, step = 0.1, suffix = '', prefix = '', min = 0 }) => (
   <Row>
-    <TouchableOpacity onPress={() => onChange(Math.max(0, Math.round((value - step) * 100) / 100))} style={st}><Ionicons name="remove" size={18} color={C.navy} /></TouchableOpacity>
-    <Text style={{ minWidth: 70, textAlign: 'center', fontWeight: '800', color: C.navy, fontSize: 16 }}>{prefix}{Number(value).toFixed(step < 1 ? 2 : 0)}{suffix}</Text>
-    <TouchableOpacity onPress={() => onChange(Math.round((value + step) * 100) / 100)} style={st}><Ionicons name="add" size={18} color={C.navy} /></TouchableOpacity>
+    <TouchableOpacity onPress={() => onChange(Math.max(min, round2(value - step)))} style={st}><Ionicons name="remove" size={18} color={C.navy} /></TouchableOpacity>
+    <Text style={{ minWidth: 70, textAlign: 'center', fontWeight: '800', color: C.navy, fontSize: 15 }}>{prefix}{Number(value).toFixed(step < 1 ? 2 : 0)}{suffix}</Text>
+    <TouchableOpacity onPress={() => onChange(round2(value + step))} style={st}><Ionicons name="add" size={18} color={C.navy} /></TouchableOpacity>
   </Row>
 );
 const st = { width: 36, height: 36, borderRadius: 10, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white };
+const ParamRow = ({ label, sub, children }) => (
+  <Row style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+    <View style={{ flex: 1, paddingRight: 8 }}>
+      <Text style={{ fontWeight: '700' }}>{label}</Text>
+      {sub ? <T.sub style={{ fontSize: 12 }}>{sub}</T.sub> : null}
+    </View>
+    {children}
+  </Row>
+);
+const Kpi = ({ label, value, color = C.navy, style }) => (
+  <Card style={[{ flex: 1, padding: 12 }, style]}>
+    <T.sub style={{ fontSize: 12 }}>{label}</T.sub>
+    <Text style={{ fontFamily: F.price, fontSize: 18, color }}>{value}</Text>
+  </Card>
+);
 
 export function AdminScreen({ navigation }) {
-  const { state, setConfig, approvePending, adminDecideSelf, toast } = useApp();
+  const { state, wallets, stats, setConfig, approvePending, adminDecideSelf, toast, resolveDispute } = useApp();
   const cfg = state.config;
   const [cat, setCat] = useState('mototaxi');
-  const cm = cfg.commission[cat];
+  const [ledgerAll, setLedgerAll] = useState(false);
+  const mg = cfg.margin[cat];
   const tf = cfg.tariffs[cat];
-  const sample = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('mercado'), cargo: { size: Object.keys(cfg.cargoSizes[cat] || { x: 0 })[0] } });
-  const sampleLong = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('yanahuara'), cargo: { size: Object.keys(cfg.cargoSizes[cat] || { x: 0 })[0] } });
+  const size0 = { size: Object.keys(cfg.cargoSizes[cat] || { x: 0 })[0] };
+  const sample = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('mercado'), cargo: size0 });
+  const sampleLong = calcPrice(cfg, { category: cat, origin: placeById('plaza'), dest: placeById('yanahuara'), cargo: size0 });
 
-  const setCm = (patch) => setConfig((c) => ({ ...c, commission: { ...c.commission, [cat]: { ...c.commission[cat], ...patch } } }));
+  const setMg = (patch) => setConfig((c) => ({ ...c, margin: { ...c.margin, [cat]: { ...c.margin[cat], ...patch } } }));
   const setTf = (patch) => setConfig((c) => ({ ...c, tariffs: { ...c.tariffs, [cat]: { ...c.tariffs[cat], ...patch } } }));
+  const setC = (k) => (v) => setConfig((c) => ({ ...c, [k]: v }));
 
-  const cap = (state.stats.commissionGenerated * cfg.rewardsCapPct) / 100;
+  const cap = (stats.margin * cfg.rewardsCapPct) / 100;
   const pending = [...state.pendingDrivers];
   if (state.driver.status === 'pending') pending.unshift({ id: 'self', name: state.driver.profile.name, category: state.driver.profile.category, plate: state.driver.profile.plate, docs: 5, date: new Date().toISOString() });
+  const audit = round2(Object.values(wallets).reduce((a, b) => a + b, 0));
+  const openDisputes = state.disputes.filter((d) => d.status === 'open');
+  const ledger = ledgerAll ? state.ledger : state.ledger.slice(0, 25);
 
   return (
     <Screen>
       <Header title="Panel administrador (demo)" onBack={() => navigation.goBack()} />
-      <Card style={{ backgroundColor: C.goldSoft }}>
-        <T.sub>En producción esto es el panel web (Laravel). Aquí puedes cambiar los parámetros y verlos reflejados al instante en la app.</T.sub>
+      <Card flat style={{ backgroundColor: C.goldSoft, borderColor: C.goldSoft }}>
+        <T.sub style={{ color: C.goldText }}>En producción esto es el panel web (Laravel). Todos los parámetros viven en base de datos: cámbialos aquí y se reflejan al instante en la app.</T.sub>
       </Card>
 
-      <T.h2 style={{ marginTop: 18 }}>Ingresos</T.h2>
+      <T.h2 style={{ marginTop: 18 }}>Dinero en la plataforma</T.h2>
       <Row style={{ marginTop: 10 }}>
-        <Card style={{ flex: 1, marginRight: 6 }}><T.sub>Comisión generada</T.sub><T.h2>{money(state.stats.commissionGenerated)}</T.h2></Card>
-        <Card style={{ flex: 1, marginLeft: 6 }}><T.sub>Gastado en premios</T.sub><T.h2 style={{ color: C.purple }}>{money(state.stats.rewardsSpent)}</T.h2></Card>
+        <Kpi label="Margen generado" value={money(stats.margin)} style={{ marginRight: 6 }} />
+        <Kpi label="Retenido ahora" value={money(wallets.retenido)} color={C.goldText} style={{ marginLeft: 6 }} />
       </Row>
+      <Row style={{ marginTop: 10 }}>
+        <Kpi label="Premios y bonos" value={`−${money(stats.rewards)}`} color={C.purple} style={{ marginRight: 6 }} />
+        <Kpi label="Pasarela" value={`−${money(stats.gateway)}`} color={C.red} style={{ marginLeft: 6 }} />
+      </Row>
+      <Row style={{ marginTop: 10 }}>
+        <Kpi label="Margen neto real" value={money(stats.net)} color={C.green} style={{ marginRight: 6 }} />
+        <Kpi label="Billeteras conductores" value={money(wallets.conductor + wallets.conductores)} style={{ marginLeft: 6 }} />
+      </Row>
+      <Row style={{ marginTop: 10, backgroundColor: audit === 0 ? C.greenSoft : C.redSoft, borderRadius: 12, padding: 10 }}>
+        <Ionicons name={audit === 0 ? 'checkmark-circle' : 'alert-circle'} size={18} color={audit === 0 ? C.green : C.red} />
+        <Text style={{ marginLeft: 8, fontWeight: '800', color: audit === 0 ? C.greenText : C.redText, flex: 1 }}>
+          Cuadre del libro: {money(audit)} · {state.ledger.length} asientos, ninguno se borra
+        </Text>
+      </Row>
+
+      <T.h2 style={{ marginTop: 20 }}>Reclamos ({openDisputes.length})</T.h2>
       <Card style={{ marginTop: 10 }}>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T.h3>Tope de premios</T.h3>
-          <Stepper value={cfg.rewardsCapPct} step={5} suffix="%" onChange={(v) => setConfig((c) => ({ ...c, rewardsCapPct: Math.min(50, v) }))} />
-        </Row>
-        <Progress value={state.stats.rewardsSpent / cap} color={state.stats.rewardsSpent > cap * 0.9 ? C.red : C.purple} style={{ marginTop: 10 }} />
-        <T.sub style={{ marginTop: 6 }}>{money(state.stats.rewardsSpent)} de {money(cap)} permitidos. Si se supera, los cupones se pausan.</T.sub>
+        {state.disputes.length ? state.disputes.map((d) => (
+          <View key={d.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={{ fontWeight: '800', flex: 1 }}>{d.trip.origin.name.replace('Mi ubicación ', '')} → {d.trip.dest.name}</Text>
+              <Badge text={d.status === 'open' ? 'Retenido' : d.status === 'paid' ? 'Pagado al conductor' : 'Reembolsado'} tone={d.status === 'open' ? 'gold' : d.status === 'paid' ? 'green' : 'navy'} />
+            </Row>
+            <T.sub>“{d.reason}” · {money(d.amount)} · {d.trip.driver?.name} · {fmtDate(d.createdAt)}</T.sub>
+            {d.status === 'open' ? (
+              <Row style={{ marginTop: 8 }}>
+                <Btn small title="Pagar al conductor" variant="success" style={{ flex: 1, marginRight: 6 }} onPress={() => resolveDispute(d.id, 'driver')} />
+                <Btn small title="Reembolsar" variant="secondary" style={{ flex: 1 }} onPress={() => resolveDispute(d.id, 'refund')} />
+              </Row>
+            ) : null}
+          </View>
+        )) : <T.sub>Sin reclamos. Para probar: en un viaje del pasajero, al llegar toca “Tengo un problema”.</T.sub>}
       </Card>
 
-      <T.h2 style={{ marginTop: 18 }}>Tarifario y comisión</T.h2>
+      <T.h2 style={{ marginTop: 20 }}>Tarifario y margen</T.h2>
       <Row style={{ marginTop: 10, flexWrap: 'wrap' }}>
         {CATEGORIES.map((c) => (
-          <TouchableOpacity key={c.id} onPress={() => setCat(c.id)} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, marginRight: 6, marginBottom: 6, backgroundColor: cat === c.id ? c.color : C.white, borderWidth: 1.5, borderColor: cat === c.id ? c.color : C.border }}>
-            <Text style={{ fontWeight: '800', color: cat === c.id ? C.white : C.navy }}>{c.emoji} {c.name}</Text>
+          <TouchableOpacity key={c.id} onPress={() => setCat(c.id)} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, marginRight: 6, marginBottom: 6, backgroundColor: cat === c.id ? c.soft : C.white, borderWidth: 1.5, borderColor: cat === c.id ? c.color : C.border }}>
+            <CatIcon id={c.id} size={18} />
+            <Text style={{ fontWeight: '800', color: c.text, marginLeft: 6 }}>{c.name}</Text>
           </TouchableOpacity>
         ))}
       </Row>
       <Card style={{ marginTop: 6 }}>
-        <Row style={{ justifyContent: 'space-between', marginBottom: 10 }}><T.p>Tarifa base</T.p><Stepper value={tf.base} step={0.5} prefix="S/ " onChange={(v) => setTf({ base: v })} /></Row>
-        <Row style={{ justifyContent: 'space-between', marginBottom: 10 }}><T.p>Por km</T.p><Stepper value={tf.perKm} step={0.1} prefix="S/ " onChange={(v) => setTf({ perKm: v })} /></Row>
-        <Row style={{ justifyContent: 'space-between', marginBottom: 14 }}><T.p>Tarifa mínima</T.p><Stepper value={tf.min} step={0.5} prefix="S/ " onChange={(v) => setTf({ min: v })} /></Row>
+        <ParamRow label="Tarifa base"><Stepper value={tf.base} step={0.5} prefix="S/ " onChange={(v) => setTf({ base: v })} /></ParamRow>
+        <ParamRow label="Por km"><Stepper value={tf.perKm} step={0.1} prefix="S/ " onChange={(v) => setTf({ perKm: v })} /></ParamRow>
+        <ParamRow label="Tarifa mínima"><Stepper value={tf.min} step={0.5} prefix="S/ " onChange={(v) => setTf({ min: v })} /></ParamRow>
         <View style={{ height: 1, backgroundColor: C.border, marginBottom: 12 }} />
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T.p>Tipo de comisión</T.p>
+        <ParamRow label="Tipo de margen">
           <Row>
             {['fixed', 'percent'].map((t) => (
-              <TouchableOpacity key={t} onPress={() => setCm({ type: t, value: t === 'fixed' ? 0.4 : 10 })} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginLeft: 6, backgroundColor: cm.type === t ? C.navy : C.bg }}>
-                <Text style={{ fontWeight: '700', color: cm.type === t ? C.white : C.navy }}>{t === 'fixed' ? 'Monto fijo' : 'Porcentaje'}</Text>
+              <TouchableOpacity key={t} onPress={() => setMg({ type: t, value: t === 'fixed' ? 0.5 : 10 })} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginLeft: 6, backgroundColor: mg.type === t ? C.navy : C.bg }}>
+                <Text style={{ fontWeight: '700', color: mg.type === t ? C.white : C.navy }}>{t === 'fixed' ? 'Monto fijo' : 'Porcentaje'}</Text>
               </TouchableOpacity>
             ))}
           </Row>
-        </Row>
-        <Row style={{ justifyContent: 'space-between', marginTop: 12 }}>
-          <T.p>Comisión</T.p>
-          {cm.type === 'fixed' ? (
-            <Stepper value={cm.value} step={0.05} prefix="S/ " onChange={(v) => setCm({ value: v })} />
-          ) : (
-            <Stepper value={cm.value} step={1} suffix="%" onChange={(v) => setCm({ value: v })} />
-          )}
-        </Row>
-        <View style={{ backgroundColor: C.bg, borderRadius: 12, padding: 12, marginTop: 14 }}>
+        </ParamRow>
+        <ParamRow label="Margen Cusco Drive">
+          {mg.type === 'fixed' ? <Stepper value={mg.value} step={0.1} prefix="S/ " onChange={(v) => setMg({ value: v })} /> : <Stepper value={mg.value} step={1} suffix="%" onChange={(v) => setMg({ value: v })} />}
+        </ParamRow>
+        <View style={{ backgroundColor: C.bg, borderRadius: 12, padding: 12 }}>
           <T.sub style={{ fontWeight: '800' }}>Vista previa</T.sub>
-          <T.sub>Plaza → Mercado: conductor {money(sample.driverFare)} + comisión {money(sample.commission)} = <Text style={{ fontWeight: '900', color: C.navy }}>{money(sample.final)}</Text></T.sub>
-          <T.sub>Plaza → Yanahuara: conductor {money(sampleLong.driverFare)} + comisión {money(sampleLong.commission)} = <Text style={{ fontWeight: '900', color: C.navy }}>{money(sampleLong.final)}</Text></T.sub>
-          <T.sub style={{ marginTop: 4 }}>La comisión equivale al {((sample.commission / sample.driverFare) * 100).toFixed(0)}% de la tarifa corta.</T.sub>
+          <T.sub>Plaza → Mercado: conductor {money(sample.driverFare)} + margen {money(sample.margin)} = <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sample.final)}</Text></T.sub>
+          <T.sub>Plaza → Yanahuara: conductor {money(sampleLong.driverFare)} + margen {money(sampleLong.margin)} = <Text style={{ fontWeight: '800', color: C.navy, fontSize: 13 }}>{money(sampleLong.final)}</Text></T.sub>
         </View>
       </Card>
-
       <Card style={{ marginTop: 12 }}>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <View style={{ flex: 1 }}><T.h3>Redondear a S/ 0.50</T.h3><T.sub>Evita monedas de 10 céntimos (2.90 → 3.00)</T.sub></View>
-          <Switch value={cfg.rounding === '0.50'} onValueChange={(v) => setConfig((c) => ({ ...c, rounding: v ? '0.50' : 'none' }))} trackColor={{ true: C.gold }} />
-        </Row>
-        <Row style={{ justifyContent: 'space-between', marginTop: 14 }}>
-          <View style={{ flex: 1 }}><T.h3>Hoy llueve 🌧️</T.h3><T.sub>Activa el recargo transparente por lluvia</T.sub></View>
-          <Switch value={cfg.raining} onValueChange={(v) => setConfig((c) => ({ ...c, raining: v }))} trackColor={{ true: C.gold }} />
-        </Row>
-        <T.sub style={{ marginTop: 10 }}>Recargo nocturno automático de 22:00 a 05:00. No hay tarifa dinámica tipo “surge”.</T.sub>
+        <ParamRow label="Redondear a S/ 0.50" sub="Precios en múltiplos de 0.50"><Switch value={cfg.rounding === '0.50'} onValueChange={(v) => setConfig((c) => ({ ...c, rounding: v ? '0.50' : 'none' }))} trackColor={{ true: C.gold }} /></ParamRow>
+        <ParamRow label="Hoy llueve" sub="Activa el recargo transparente por lluvia"><Switch value={cfg.raining} onValueChange={setC('raining')} trackColor={{ true: C.gold }} /></ParamRow>
+        <T.sub>Recargo nocturno automático de 22:00 a 05:00. No hay tarifa dinámica tipo “surge”.</T.sub>
       </Card>
 
-      <T.h2 style={{ marginTop: 18 }}>Conductores por aprobar</T.h2>
-      <Card style={{ marginTop: 10, paddingVertical: 4 }}>
-        {pending.length ? (
-          pending.map((p) => (
-            <View key={p.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Row>
-                <Text style={{ fontSize: 26 }}>{catById(p.category).emoji}</Text>
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                  <T.h3>{p.name}</T.h3>
-                  <T.sub>{p.plate} · {p.docs}/5 documentos · {fmtDate(p.date)}</T.sub>
-                </View>
-                {p.id === 'self' ? <Badge text="Tú" color={C.purple} /> : null}
-              </Row>
-              <Row style={{ marginTop: 8 }}>
-                <Btn small title="Aprobar" variant="success" style={{ flex: 1, marginRight: 6 }} onPress={() => { p.id === 'self' ? adminDecideSelf(true) : approvePending(p.id, true); toast(`${p.name} aprobado`, 'success'); }} />
-                <Btn small title="Rechazar" variant="danger" style={{ flex: 1 }} onPress={() => { p.id === 'self' ? adminDecideSelf(false, 'Documentos ilegibles') : approvePending(p.id, false); toast(`${p.name} rechazado`, 'warn'); }} />
-              </Row>
-            </View>
-          ))
-        ) : (
-          <T.sub style={{ padding: 12 }}>No hay solicitudes pendientes.</T.sub>
-        )}
-      </Card>
-
-      <T.h2 style={{ marginTop: 18 }}>Bonos de conductores</T.h2>
+      <T.h2 style={{ marginTop: 20 }}>Pago retenido</T.h2>
       <Card style={{ marginTop: 10 }}>
-        {cfg.driverBonuses.map((b, i) => (
-          <Row key={i} style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-            <T.p>{b.trips} viajes/semana</T.p>
-            <Stepper value={b.amount} step={1} prefix="S/ " onChange={(v) => setConfig((c) => ({ ...c, driverBonuses: c.driverBonuses.map((x, k) => (k === i ? { ...x, amount: v } : x)) }))} />
+        <ParamRow label="Liberación automática" sub="Si el pasajero no reclama"><Stepper value={cfg.autoReleaseMin} step={1} min={1} suffix=" min" onChange={setC('autoReleaseMin')} /></ParamRow>
+        <ParamRow label="Sin conductor → reembolso" sub="Tiempo máximo de búsqueda"><Stepper value={cfg.searchTimeoutMin} step={1} min={1} suffix=" min" onChange={setC('searchTimeoutMin')} /></ParamRow>
+        <ParamRow label="Radio GPS para finalizar"><Stepper value={cfg.arrivalRadiusM} step={50} min={50} suffix=" m" onChange={setC('arrivalRadiusM')} /></ParamRow>
+        <ParamRow label="Penalidad al cancelar" sub="Si el conductor ya llegó (va al conductor)"><Stepper value={cfg.cancelFeeArrived} step={0.5} prefix="S/ " onChange={setC('cancelFeeArrived')} /></ParamRow>
+      </Card>
+
+      <T.h2 style={{ marginTop: 20 }}>Billeteras</T.h2>
+      <Card style={{ marginTop: 10 }}>
+        <ParamRow label="Comisión de pasarela" sub="Pendiente: tarifa real (Culqi, Niubiz…)"><Stepper value={cfg.gatewayFeePct} step={0.5} suffix="%" onChange={setC('gatewayFeePct')} /></ParamRow>
+        <ParamRow label="Retiros gratis al mes"><Stepper value={cfg.freeWithdrawalsPerMonth} step={1} onChange={setC('freeWithdrawalsPerMonth')} /></ParamRow>
+        <ParamRow label="Costo por retiro extra"><Stepper value={cfg.withdrawFee} step={0.5} prefix="S/ " onChange={setC('withdrawFee')} /></ParamRow>
+        <ParamRow label="Retiro mínimo"><Stepper value={cfg.minWithdraw} step={1} prefix="S/ " onChange={setC('minWithdraw')} /></ParamRow>
+        <T.sub>Costo de pasarela por viaje (recarga S/ 20 ≈ 6 viajes): {money((20 * cfg.gatewayFeePct) / 100 / 6)} → sale del margen.</T.sub>
+      </Card>
+
+      <T.h2 style={{ marginTop: 20 }}>Premios</T.h2>
+      <Card style={{ marginTop: 10 }}>
+        <ParamRow label="Tope de premios" sub="% del margen generado"><Stepper value={cfg.rewardsCapPct} step={5} suffix="%" onChange={(v) => setConfig((c) => ({ ...c, rewardsCapPct: Math.min(50, v) }))} /></ParamRow>
+        <Progress value={stats.rewards / Math.max(1, cap)} color={stats.rewards > cap * 0.9 ? C.red : C.purple} />
+        <T.sub style={{ marginTop: 6, marginBottom: 12 }}>{money(stats.rewards)} de {money(cap)} permitidos. Si se supera, los vales se pausan.</T.sub>
+        {cfg.driverDailyBonuses.map((b, i) => (
+          <ParamRow key={b.trips} label={`Bono ${b.trips} viajes/día`}>
+            <Stepper value={b.amount} step={1} prefix="S/ " onChange={(v) => setConfig((c) => ({ ...c, driverDailyBonuses: c.driverDailyBonuses.map((x, k) => (k === i ? { ...x, amount: v } : x)) }))} />
+          </ParamRow>
+        ))}
+        <ParamRow label="Viajes para premio pasajero"><Stepper value={cfg.pointsPerReward} step={1} min={2} onChange={setC('pointsPerReward')} /></ParamRow>
+        <ParamRow label="Valor máximo de un vale"><Stepper value={cfg.couponMaxValue} step={0.5} prefix="S/ " onChange={setC('couponMaxValue')} /></ParamRow>
+      </Card>
+
+      <T.h2 style={{ marginTop: 20 }}>Conductores por aprobar</T.h2>
+      <Card style={{ marginTop: 10, paddingVertical: 4 }}>
+        {pending.length ? pending.map((p) => (
+          <View key={p.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <Row>
+              <CatIcon id={p.category} size={26} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <T.h3>{p.name}</T.h3>
+                <T.sub>{catById(p.category).name} · {p.plate} · {p.docs}/5 documentos · {fmtDate(p.date)}</T.sub>
+              </View>
+              {p.id === 'self' ? <Badge text="Tú" tone="purple" /> : null}
+            </Row>
+            <Row style={{ marginTop: 8 }}>
+              <Btn small title="Aprobar" variant="success" style={{ flex: 1, marginRight: 6 }} onPress={() => { if (p.id === 'self') adminDecideSelf(true); else approvePending(p.id); toast(`${p.name} aprobado`, 'success'); }} />
+              <Btn small title="Rechazar" variant="danger" style={{ flex: 1 }} onPress={() => { if (p.id === 'self') adminDecideSelf(false, 'Documentos ilegibles'); else approvePending(p.id); toast(`${p.name} rechazado`, 'warn'); }} />
+            </Row>
+          </View>
+        )) : <T.sub style={{ padding: 12 }}>No hay solicitudes pendientes.</T.sub>}
+      </Card>
+
+      <T.h2 style={{ marginTop: 20 }}>Libro de movimientos</T.h2>
+      <T.sub>Auditable: cada operación suma cero y nunca se borra.</T.sub>
+      <Card style={{ marginTop: 10, paddingVertical: 6 }}>
+        {ledger.map((m) => (
+          <Row key={m.id} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.mapBg }}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{m.label}</Text>
+              <T.sub style={{ fontSize: 11 }}>{ACCOUNTS[m.account]} · {TYPE_LABEL[m.type]} · {fmtDate(m.date)}</T.sub>
+            </View>
+            <Text style={{ fontFamily: F.bold, fontSize: 13, color: m.amount > 0 ? C.green : C.text }}>{signed(m.amount)}</Text>
           </Row>
         ))}
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T.p>Viajes para premio pasajero</T.p>
-          <Stepper value={cfg.pointsPerReward} step={1} onChange={(v) => setConfig((c) => ({ ...c, pointsPerReward: Math.max(2, v) }))} />
-        </Row>
+        {state.ledger.length > 25 ? <Btn small variant="ghost" title={ledgerAll ? 'Ver menos' : `Ver los ${state.ledger.length}`} style={{ marginTop: 8 }} onPress={() => setLedgerAll(!ledgerAll)} /> : null}
       </Card>
     </Screen>
   );
